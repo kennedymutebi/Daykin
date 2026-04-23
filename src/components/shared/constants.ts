@@ -1,0 +1,1 @@
+export const SERIF = '"Source Serif 4", Georgia, "Times New Roman", serif';

@@ -1,0 +1,30 @@
+/* src/index.css */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+}
+
+/* Typography smoothing — keep these, they're good */
+body {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
