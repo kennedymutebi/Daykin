@@ -1,7 +1,9 @@
+// src/components/shared/ArticleSearchBar.tsx
 import React, { useState } from "react";
 import { Box, IconButton, InputBase } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import SearchIcon from "@mui/icons-material/Search";
+import CloseIcon from "@mui/icons-material/Close";
 
 const SERIF = "'Playfair Display', Georgia, serif";
 
@@ -21,21 +23,25 @@ const ArticleSearchBar: React.FC<ArticleSearchBarProps> = ({
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
 
-  const [query, setQuery] = useState("");
+  const [query,   setQuery]   = useState("");
   const [focused, setFocused] = useState(false);
 
-  const handleSearch = () => {
-    if (query.trim()) onSearch?.(query.trim());
+  // FIX: fire onSearch on every keystroke so results update live
+  // and clear results when the query is emptied
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setQuery(val);
+    onSearch?.(val.trim()); // ← fires immediately; empty string clears filter
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") handleSearch();
+  const handleClear = () => {
+    setQuery("");
+    onSearch?.("");          // ← tells parent to show all results
   };
 
-  // Surfaces flip between dark translucent and light translucent
-  const borderIdle    = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.1)";
-  const bgFocused     = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
-  const bgIdle        = isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)";
+  const borderIdle = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.1)";
+  const bgFocused  = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
+  const bgIdle     = isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)";
 
   return (
     <Box
@@ -54,15 +60,13 @@ const ArticleSearchBar: React.FC<ArticleSearchBarProps> = ({
       <InputBase
         fullWidth
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={handleKeyDown}
+        onChange={handleChange}               // ← live search
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         placeholder={placeholder}
         sx={{
           fontFamily: SERIF,
           fontSize: "0.88rem",
-          // Typed text color
           color: theme.palette.text.primary,
           "& ::placeholder": {
             color: theme.palette.text.disabled,
@@ -70,9 +74,25 @@ const ArticleSearchBar: React.FC<ArticleSearchBarProps> = ({
           },
         }}
       />
+
+      {/* Clear button — visible when there is text */}
+      {query && (
+        <IconButton
+          size="small"
+          onClick={handleClear}
+          sx={{
+            color: theme.palette.text.disabled,
+            p: 0.5,
+            "&:hover": { color: theme.palette.text.primary },
+          }}
+        >
+          <CloseIcon sx={{ fontSize: 15 }} />
+        </IconButton>
+      )}
+
       <IconButton
         size="small"
-        onClick={handleSearch}
+        onClick={() => onSearch?.(query.trim())}
         sx={{
           color: focused ? accentColor : theme.palette.text.disabled,
           transition: "color 0.2s",

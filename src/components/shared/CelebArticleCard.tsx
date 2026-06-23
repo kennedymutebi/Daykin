@@ -15,7 +15,7 @@ interface Props {
 
 export const CelebArticleCard: React.FC<Props> = ({ article, onOpen, audio }) => {
   const theme = useTheme();
-  const isDark = theme.palette.mode === "dark";
+  
 
   // Fallback to theme's primary color if categoryColor is undefined
   const accent = article.categoryColor ?? theme.palette.primary.main;

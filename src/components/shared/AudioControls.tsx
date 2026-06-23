@@ -1,3 +1,4 @@
+// src/components/shared/AudioControls.tsx
 import React from "react";
 import { useTheme } from "@mui/material/styles";
 import { SERIF } from "./constants";
@@ -14,17 +15,20 @@ export const PauseIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
-interface Props { articleId: number; audio: AudioState; color: string; }
+interface Props {
+  articleId: number;
+  audioUrl?: string | null;   // ← NEW: real audio URL from API
+  audio: AudioState;
+  color: string;
+}
 
-export const AudioControls: React.FC<Props> = ({ articleId, audio, color }) => {
+export const AudioControls: React.FC<Props> = ({ articleId, audioUrl, audio, color }) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
 
   const isActive  = audio.articleId === articleId;
   const isPlaying = isActive && audio.playing;
 
-  // Playing state: a tinted fill using the accent color
-  // Idle state:    a subtle surface tint from the theme
   const bgPlaying = isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.08)";
   const bgIdle    = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.04)";
   const border    = isDark ? "rgba(255,255,255,0.1)"  : "rgba(0,0,0,0.1)";
@@ -32,33 +36,21 @@ export const AudioControls: React.FC<Props> = ({ articleId, audio, color }) => {
   return (
     <div>
       <button
-        onClick={() => audio.toggle(articleId)}
+        onClick={() => audio.toggle(articleId, audioUrl)}  // ← pass audioUrl
         style={{
           display: "flex", alignItems: "center", gap: "0.5rem",
           background: isPlaying ? bgPlaying : bgIdle,
           border: `1px solid ${border}`,
-          padding: "0.45rem 0.8rem",
-          borderRadius: 2,
-          cursor: "pointer",
-          fontFamily: SERIF,
-          fontSize: "0.78rem",
-          // Use theme text colors so it reads well in both modes
-          color: isPlaying
-            ? theme.palette.text.primary
-            : theme.palette.text.secondary,
-          width: "fit-content",
-          transition: "all 0.2s",
+          padding: "0.45rem 0.8rem", borderRadius: 2,
+          cursor: "pointer", fontFamily: SERIF, fontSize: "0.78rem",
+          color: isPlaying ? theme.palette.text.primary : theme.palette.text.secondary,
+          width: "fit-content", transition: "all 0.2s",
         }}
       >
         {isPlaying ? <PauseIcon size={14} /> : <PlayIcon size={14} />}
         {isPlaying ? "Pause" : "Listen"}
         {isActive && (
-          <span style={{
-            marginLeft: 4,
-            opacity: 0.6,
-            fontSize: "0.72rem",
-            color: theme.palette.text.secondary,
-          }}>
+          <span style={{ marginLeft: 4, opacity: 0.6, fontSize: "0.72rem", color: theme.palette.text.secondary }}>
             {audio.fmt(audio.elapsed)}
           </span>
         )}
@@ -70,11 +62,7 @@ export const AudioControls: React.FC<Props> = ({ articleId, audio, color }) => {
             type="range" min={0} max={100} step={0.5}
             value={audio.progress}
             onChange={e => audio.seek(e.target.value)}
-            style={{
-              width: "100%", height: 3,
-              accentColor: color,
-              cursor: "pointer",
-            }}
+            style={{ width: "100%", height: 3, accentColor: color, cursor: "pointer" }}
           />
         </div>
       )}

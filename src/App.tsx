@@ -2,14 +2,17 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Navbar from "./components/layout/Navbar";
 import Footer from "./components/layout/Footer";
-import WishView from "./pages/WishView";
+
 import Home from "./pages/Home";
 import Birthdays from "./pages/Birthdays";
 import LoveStories from "./pages/LoveStories";
-import SportsPage from "./pages/SportsPage";
+
 import Charity from "./pages/Charity";
+import AudioWishPage from "./pages/AudioWishPage";
+
 
 import { Box } from "@mui/material";
+
 
 const App: React.FC = () => (
   <BrowserRouter>
@@ -17,13 +20,13 @@ const App: React.FC = () => (
       <Navbar />
       <Box sx={{ flex: 1 }}>
         <Routes>
-          <Route path="/"             element={<Home />}        />
-          <Route path="/birthdays"    element={<Birthdays />}   />
-          <Route path="/love-stories" element={<LoveStories />} />
-          <Route path="/sports"       element={<SportsPage />}  />
-          <Route path="/charity"      element={<Charity />}     />
-          <Route path="/wish/:token"  element={<WishView />}    />
-          <Route path="*"             element={<Navigate to="/" replace />} />
+          <Route path="/"                element={<Home />}              />
+          <Route path="/birthdays"       element={<Birthdays />}         />
+          <Route path="/audio-wish"      element={<AudioWishPage />}     />
+          <Route path="/love-stories"    element={<LoveStories />}       />
+          <Route path="/charity"         element={<Charity />}           />
+                   
+          <Route path="*"                element={<Navigate to="/" replace />} />
         </Routes>
       </Box>
       <Footer />

@@ -17,12 +17,12 @@ import CloseIcon from "@mui/icons-material/Close";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
 import ArticleSearchBar from "../components/shared/ArticleSearchBar";
-import { ArticleModal } from "../components/shared/ArticleModal";
+
 import { useAudio } from "../hooks/useAudio";
 import { CHARITY_CASES, type CharityCase } from "../data/charityArticles";
 
 const SERIF           = "'Playfair Display', Georgia, serif";
-const COMPOSER_ACCENT = "#F59E0B";
+
 
 const TAG_FILTERS  = ["All", "Medical", "Education", "Shelter", "Food", "Child", "Urgent"];
 const PRESET_AMOUNTS = [5, 10, 25, 50, 100, 250];
@@ -481,11 +481,11 @@ export default function CharityPage() {
   const accent     = theme.palette.primary.main;
   const accentText = theme.palette.primary.contrastText;
 
-  const [activeCause,  setActiveCause]  = useState<CharityCase | null>(null);
+  const [activeCause,   setActiveCause]  = useState<CharityCase | null>(null);
   const [donateCause,  setDonateCause]  = useState<CharityCase | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");
   const [searchQuery,  setSearchQuery]  = useState("");
-  const audio = useAudio();
+  
 
   const totalRaised = CHARITY_CASES.reduce((s, c) => s + c.raised, 0);
   const totalDonors = CHARITY_CASES.reduce((s, c) => s + c.donors, 0);
@@ -671,10 +671,6 @@ export default function CharityPage() {
         )}
       </Box>
 
-      {activeCause && (
-        <ArticleModal article={activeCause}
-          onClose={() => setActiveCause(null)} audio={audio} />
-      )}
       {donateCause && (
         <DonationModal cause={donateCause} onClose={() => setDonateCause(null)} />
       )}

@@ -1,18 +1,34 @@
+// src/components/shared/EngagementBar.tsx
 import React, { useState } from "react";
 import { useTheme } from "@mui/material/styles";
 import { SERIF } from "./constants";
 import type { Engagement } from "../../types/article";
 
-interface Props { engagement: Engagement; color: string; }
+interface Props {
+  engagement: Engagement;
+  color: string;
+  onLike?: () => void;
+  onShare?: () => void;
+  onComment?: () => void;      // ← ADDED
+  onSubscribe?: () => void;
+  isSubscribed?: boolean;
+}
 
-export const EngagementBar: React.FC<Props> = ({ engagement, color }) => {
+export const EngagementBar: React.FC<Props> = ({
+  engagement,
+  color,
+  onLike,
+  onShare,
+  onComment,                   // ← ADDED
+  onSubscribe,
+  isSubscribed = false,
+}) => {
   const theme = useTheme();
-  const isDark = theme.palette.mode === "dark";
 
-  const [liked,    setLiked]    = useState(false);
-  const [reposted, setReposted] = useState(false);
+  const [liked,      setLiked]      = useState(false);
+  const [shared,     setShared]     = useState(false);
+  const [subscribed, setSubscribed] = useState(isSubscribed);
 
-  // Idle icon/text color — readable in both modes
   const idle = theme.palette.text.secondary;
 
   const btn: React.CSSProperties = {
@@ -22,19 +38,32 @@ export const EngagementBar: React.FC<Props> = ({ engagement, color }) => {
     transition: "color 0.15s",
   };
 
+  const handleLike = () => {
+    const nowLiked = !liked;
+    setLiked(nowLiked);
+    if (nowLiked) onLike?.();
+  };
+
+  const handleShare = () => {
+    const nowShared = !shared;
+    setShared(nowShared);
+    if (nowShared) onShare?.();
+  };
+
+  const handleSubscribe = () => {
+    const nowSub = !subscribed;
+    setSubscribed(nowSub);
+    onSubscribe?.();
+  };
+
   return (
-    <div
-      style={{
-        display: "flex", alignItems: "center",
-        borderTop: `1px solid ${theme.palette.divider}`,
-        paddingTop: "0.7rem", marginTop: "0.6rem",
-      }}
-    >
+    <div style={{
+      display: "flex", alignItems: "center", flexWrap: "wrap", gap: "0.25rem",
+      borderTop: `1px solid ${theme.palette.divider}`,
+      paddingTop: "0.7rem", marginTop: "0.6rem",
+    }}>
       {/* Like */}
-      <button
-        onClick={() => setLiked(v => !v)}
-        style={{ ...btn, color: liked ? color : idle, marginRight: "1rem" }}
-      >
+      <button onClick={handleLike} style={{ ...btn, color: liked ? color : idle, marginRight: "0.75rem" }}>
         <svg width="16" height="16" viewBox="0 0 24 24"
           fill={liked ? color : "none"}
           stroke={liked ? color : "currentColor"} strokeWidth="1.8">
@@ -43,8 +72,8 @@ export const EngagementBar: React.FC<Props> = ({ engagement, color }) => {
         {engagement.likes + (liked ? 1 : 0)}
       </button>
 
-      {/* Comment */}
-      <button style={{ ...btn, color: idle, marginRight: "1rem" }}>
+      {/* Comment — NOW WIRED UP */}
+      <button onClick={onComment} style={{ ...btn, color: idle, marginRight: "0.75rem" }}>
         <svg width="16" height="16" viewBox="0 0 24 24"
           fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -52,11 +81,8 @@ export const EngagementBar: React.FC<Props> = ({ engagement, color }) => {
         {engagement.comments}
       </button>
 
-      {/* Repost — intentionally green when active, same in both modes */}
-      <button
-        onClick={() => setReposted(v => !v)}
-        style={{ ...btn, color: reposted ? "#22c55e" : idle }}
-      >
+      {/* Share */}
+      <button onClick={handleShare} style={{ ...btn, color: shared ? "#22c55e" : idle, marginRight: "0.75rem" }}>
         <svg width="16" height="16" viewBox="0 0 24 24"
           fill="none" stroke="currentColor" strokeWidth="1.8">
           <polyline points="17 1 21 5 17 9" />
@@ -64,18 +90,41 @@ export const EngagementBar: React.FC<Props> = ({ engagement, color }) => {
           <polyline points="7 23 3 19 7 15" />
           <path d="M21 13v2a4 4 0 0 1-4 4H3" />
         </svg>
-        {engagement.reposts + (reposted ? 1 : 0)}
+        {engagement.shares + (shared ? 1 : 0)}
       </button>
 
-      {/* Share */}
-      <button style={{ ...btn, color: idle, marginLeft: "auto" }}>
-        <svg width="16" height="16" viewBox="0 0 24 24"
-          fill="none" stroke="currentColor" strokeWidth="1.8">
-          <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
-          <polyline points="16 6 12 2 8 6" />
-          <line x1="12" y1="2" x2="12" y2="15" />
-        </svg>
-      </button>
+      {/* Subscribe button */}
+      {onSubscribe && (
+        <button
+          onClick={handleSubscribe}
+          style={{
+            ...btn,
+            marginLeft: "auto",
+            padding: "0.25rem 0.7rem",
+            borderRadius: "20px",
+            border: `1px solid ${subscribed ? color : theme.palette.divider}`,
+            color: subscribed ? color : idle,
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            background: subscribed ? `${color}18` : "none",
+            transition: "all 0.2s",
+          }}
+        >
+          {subscribed ? "✓ Subscribed" : "Subscribe"}
+        </button>
+      )}
+
+      {/* Upload/share icon */}
+      {!onSubscribe && (
+        <button style={{ ...btn, color: idle, marginLeft: "auto" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+            <polyline points="16 6 12 2 8 6" />
+            <line x1="12" y1="2" x2="12" y2="15" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 };

@@ -4,7 +4,7 @@ export interface Writer {
   initials: string;
   role: string;
   followers: string;
-  color: string; // avatar bg color
+  color: string;
   verified?: boolean;
 }
 
