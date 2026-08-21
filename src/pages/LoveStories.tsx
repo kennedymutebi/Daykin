@@ -185,8 +185,9 @@ const ArticleCard: React.FC<{
 
   // ── FIX: author check uses id when available, falls back to name
   // We also watch currentUser reactively so no refresh is needed after login
-  const isAuthor = currentUser.id !== undefined && (article as any).authorId !== undefined
-    ? Number(currentUser.id) === Number((article as any).authorId)
+  const articleAuthorId = (article as { authorId?: number }).authorId;
+  const isAuthor = currentUser.id !== undefined && articleAuthorId !== undefined
+    ? Number(currentUser.id) === Number(articleAuthorId)
     : currentUser.name !== "Guest" && currentUser.name === article.author.name;
 
   const storyId = article.apiId ?? article.id;
@@ -275,7 +276,7 @@ const ArticleCard: React.FC<{
         {/* Avatar */}
         <Avatar sx={{
           width: 24, height: 24,
-          bgcolor: (article.author as any).color ?? ACCENT,
+          bgcolor: (article.author as { color?: string }).color ?? ACCENT,
           fontFamily: SERIF, fontSize: "0.55rem", fontWeight: 700,
           flexShrink: 0,
         }}>
@@ -359,18 +360,22 @@ export default function LoveStoriesPage() {
   const audio = useAudio();
   const { user: authUser } = useAuth();
 
-  // ── FIX: build composerUser fresh every render so edit icon reacts immediately
-  // after login without needing a page refresh
-  const composerUser = authUser
-    ? {
-        id:          authUser.id,
-        name:        authUser.name,
-        initials:    authUser.initials,
-        avatarSrc:   authUser.avatarSrc,
-        color:       COMPOSER_ACCENT,
-        avatarColor: COMPOSER_ACCENT,
-      }
-    : { name: "Guest", initials: "G", color: COMPOSER_ACCENT, avatarColor: COMPOSER_ACCENT };
+  // ── FIX: rebuild composerUser only when the user changes so the edit icon
+  // reacts immediately after login without needing a page refresh
+  const composerUser = useMemo(
+    () =>
+      authUser
+        ? {
+            id:          authUser.id,
+            name:        authUser.name,
+            initials:    authUser.initials,
+            avatarSrc:   authUser.avatarSrc,
+            color:       COMPOSER_ACCENT,
+            avatarColor: COMPOSER_ACCENT,
+          }
+        : { name: "Guest", initials: "G", color: COMPOSER_ACCENT, avatarColor: COMPOSER_ACCENT },
+    [authUser],
+  );
 
   // Keep a ref so callbacks always see latest composerUser without re-creating them
   const composerUserRef = useRef(composerUser);
@@ -408,6 +413,14 @@ export default function LoveStoriesPage() {
   // ── Create ─────────────────────────────────────────────────────────────────
   const handlePost = useCallback(async (data: { title: string; text: string; mediaFiles?: File[] }) => {
     if (!data.title.trim() && !data.text.trim() && (!data.mediaFiles || data.mediaFiles.length === 0)) return;
+
+    // Auth guard — stop guests before the request so they get a clear message
+    // instead of a raw "not authenticated" error on submit.
+    if (!authUser) {
+      setPostError("Please sign in to write an article.");
+      return;
+    }
+
     setPosting(true);
     setPostError(null);
     try {
@@ -419,13 +432,18 @@ export default function LoveStoriesPage() {
       });
       await fetchStories();
     } catch (err: unknown) {
-      setPostError(err instanceof ApiError
-        ? err.firstError
-        : "Failed to post article. Make sure you are logged in.");
+      const isAuthError = err instanceof ApiError && (err.status === 401 || err.status === 403);
+      setPostError(
+        isAuthError
+          ? "Your session has expired. Please sign in again to share your story."
+          : err instanceof ApiError
+            ? err.firstError
+            : "Failed to post article. Please try again.",
+      );
     } finally {
       setPosting(false);
     }
-  }, [fetchStories]);
+  }, [authUser, fetchStories]);
 
   // ── Edit / save ────────────────────────────────────────────────────────────
   const handleEditPost = useCallback(async (data: { title: string; text: string; mediaFiles?: File[] }) => {
@@ -478,8 +496,7 @@ export default function LoveStoriesPage() {
   setStoryLiked(apiId, !alreadyLiked);
 
   try {
-    const res = await likeLoveStory(apiId);  
-    console.log("LIKE RESPONSE:", res);   // ← now use it
+    const res = await likeLoveStory(apiId);
     const serverLikes = res.likes;              // adjust field name to match your CountResponse
 
     const reconcile = (a: Article) =>
@@ -517,7 +534,7 @@ export default function LoveStoriesPage() {
   }, []);
 
   // ── Comment icon tap ───────────────────────────────────────────────────────
-  const handleComment = useCallback((_apiId: number) => {
+  const handleComment = useCallback(() => {
     // ReactionMessenger manages its own open state
   }, []);
 

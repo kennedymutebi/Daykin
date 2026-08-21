@@ -13,6 +13,7 @@ const ThemeContext = createContext<ThemeContextValue>({
   toggle: () => {},
 });
 
+// eslint-disable-next-line react-refresh/only-export-components -- context hook intentionally co-located with its provider; Fast Refresh DX only
 export const useThemeMode = () => useContext(ThemeContext);
 
 export const AppThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

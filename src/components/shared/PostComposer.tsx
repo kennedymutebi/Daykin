@@ -19,6 +19,8 @@ import ShareOutlinedIcon    from "@mui/icons-material/ShareOutlined";
 
 import { ReactionMessenger } from "./ReactionMessenger";
 import type { Comment }      from "./ReactionMessenger";
+import { useAuth }           from "../../hooks/useAuth";
+import { ApiError }          from "../../services/api.service";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -102,10 +104,12 @@ function persistLikedSet(set: Set<number>) {
   } catch { /* quota exceeded — ignore */ }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- localStorage helper intentionally co-located; Fast Refresh DX only
 export function isStoryLiked(id: number): boolean {
   return getLikedSet().has(id);
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- localStorage helper intentionally co-located; Fast Refresh DX only
 export function setStoryLiked(id: number, liked: boolean) {
   const set = getLikedSet();
   if (liked) set.add(id); else set.delete(id);
@@ -125,6 +129,7 @@ function getBookmarkedSet(): Set<number> {
   }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- localStorage helper intentionally co-located; Fast Refresh DX only
 export function isStoryBookmarked(id: number): boolean {
   return getBookmarkedSet().has(id);
 }
@@ -134,6 +139,32 @@ function setStoryBookmarked(id: number, bookmarked: boolean) {
   if (bookmarked) set.add(id); else set.delete(id);
   try {
     localStorage.setItem(BOOKMARKED_KEY, JSON.stringify([...set]));
+  } catch { /* ignore */ }
+}
+
+// localStorage helpers — shares (dedupe so a story's share count only bumps
+// once per client; repeat clicks still re-share the link but don't inflate the count)
+const SHARED_KEY = "daykin_shared_stories";
+
+function getSharedSet(): Set<number> {
+  try {
+    const raw = localStorage.getItem(SHARED_KEY);
+    const arr: number[] = raw ? JSON.parse(raw) : [];
+    return new Set(arr);
+  } catch {
+    return new Set();
+  }
+}
+
+function isStorySharedLocal(id: number): boolean {
+  return getSharedSet().has(id);
+}
+
+function setStorySharedLocal(id: number, shared: boolean) {
+  const set = getSharedSet();
+  if (shared) set.add(id); else set.delete(id);
+  try {
+    localStorage.setItem(SHARED_KEY, JSON.stringify([...set]));
   } catch { /* ignore */ }
 }
 
@@ -159,10 +190,13 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
 }) => {
   const theme  = useTheme();
   const isDark = theme.palette.mode === "dark";
+  const { user } = useAuth();
+
+  // Auth-required message shown when a guest tries to like
+  const [authMsg, setAuthMsg] = useState<string | null>(null);
 
   // Initialise from localStorage (client-side persistence)
   const [localLiked,      setLocalLiked]      = useState(() => liked || isStoryLiked(storyId));
-;
   const [localBookmarked, setLocalBookmarked] = useState(() => bookmarked || isStoryBookmarked(storyId));
   const [likeLoading,     setLikeLoading]     = useState(false);
   const [shareLoading,    setShareLoading]    = useState(false);
@@ -180,9 +214,15 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
   const handleLike = useCallback(async () => {
     if (likeLoading) return;
 
+    // Auth guard — guests can't like; tell them why instead of silently failing
+    if (!user) {
+      setAuthMsg("Please log in to like stories.");
+      return;
+    }
+
     const wasLiked = localLiked;
     setLocalLiked(!wasLiked);
-    setLocalLikes(prev => prev + (wasLiked ? -1 : 1));
+    setLocalLikes(prev => Math.max(0, prev + (wasLiked ? -1 : 1)));
     setStoryLiked(storyId, !wasLiked);
     setBounce(true);
     setTimeout(() => setBounce(false), 400);
@@ -196,18 +236,19 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
       }
     } catch {
       setLocalLiked(wasLiked);
-      setLocalLikes(prev => prev + (wasLiked ? 1 : -1));
+      setLocalLikes(prev => Math.max(0, prev + (wasLiked ? 1 : -1)));
       setStoryLiked(storyId, wasLiked);
     } finally {
       setLikeLoading(false);
     }
-  }, [likeLoading, localLiked, onLike, onUnlike, storyId]);
+  }, [likeLoading, user, localLiked, onLike, onUnlike, storyId]);
 
   // ── Share ──────────────────────────────────────────────────────────────────
   const handleShare = useCallback(async () => {
     if (shareLoading) return;
     const url = window.location.href;
 
+    // Always let the user share the link (copy / native sheet), no login needed
     if (navigator.share) {
       try { await navigator.share({ title: document.title, url }); }
       catch { return; }
@@ -219,12 +260,18 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
       } catch { /* clipboard blocked */ }
     }
 
+    // Dedupe — only bump the share count once per story per client so repeat
+    // clicks can't inflate the counter.
+    if (isStorySharedLocal(storyId)) return;
+
     setLocalShares(prev => prev + 1);
+    setStorySharedLocal(storyId, true);
     setShareLoading(true);
     try {
       await onShare?.(storyId);
     } catch {
-      setLocalShares(prev => prev - 1);
+      setLocalShares(prev => Math.max(0, prev - 1));
+      setStorySharedLocal(storyId, false);
     } finally {
       setShareLoading(false);
     }
@@ -264,6 +311,7 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
   };
 
   return (
+    <>
     <Stack
       direction="row"
       alignItems="center"
@@ -349,6 +397,23 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
         </Tooltip>
       </Stack>
     </Stack>
+
+    {/* Auth-required feedback (e.g. guest tapped Like) */}
+    <Snackbar
+      open={!!authMsg}
+      autoHideDuration={3500}
+      onClose={() => setAuthMsg(null)}
+      anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+    >
+      <Alert
+        severity="info"
+        onClose={() => setAuthMsg(null)}
+        sx={{ fontFamily: SERIF, borderRadius: "10px" }}
+      >
+        {authMsg}
+      </Alert>
+    </Snackbar>
+    </>
   );
 };
 
@@ -453,8 +518,14 @@ const PostComposer: React.FC<PostComposerProps> = ({
     try {
       await onDelete?.();
       setSnack({ open: true, msg: "Story deleted.", sev: "success" });
-    } catch {
-      setSnack({ open: true, msg: "Could not delete. Try again.", sev: "error" });
+    } catch (err: unknown) {
+      const isAuthError = err instanceof ApiError && (err.status === 401 || err.status === 403);
+      const msg = isAuthError
+        ? "Please log in again to delete this story."
+        : err instanceof ApiError
+          ? err.firstError
+          : "Could not delete. Try again.";
+      setSnack({ open: true, msg, sev: "error" });
     } finally {
       setDeleteLoading(false);
       setDeleteDialog(false);

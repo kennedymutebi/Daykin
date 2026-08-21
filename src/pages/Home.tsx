@@ -2,29 +2,40 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Fully API-integrated Home page
 // • Articles fetched from /api/articles/ AND /api/love-stories/, merged into
-//   one feed sorted by created_at (Love Stories are written via the composer
-//   on the Love Stories page, but should also surface here)
-// • Category filter tabs work across both sources ("Love Stories" tab filters
-//   to just the love-stories source; other tabs filter /articles/ by category)
+//   one feed sorted by created_at (stories are written via the composer,
+//   which is shared with the dedicated "write an article" page)
+// • No more content-type categorization / love-story-only styling — every
+//   card renders identically with a single accent color
+// • Purple is intentionally NOT used anywhere on this page — it's reserved
+//   for the profile/subscribe UI only
+// • Comments work the same way on every card (Article or Love Story sourced),
+//   using the same MediumReactionBar pattern as the compose page
 // • Today's birthdays from /api/celebrities/birthdays-today/
 // • Like / Share wired to the correct endpoint depending on item source,
 //   with optimistic UI updates
 // • Skeleton loading states while fetching
 // • ApiError surfaces as a dismissible inline alert
+// • CHANGED: guests are stopped BEFORE the composer opens (clear "please
+//   sign in" message + Sign in button), and expired-session/401 failures on
+//   post are translated into a friendly message instead of the raw backend
+//   error text.
+// • CHANGED: excerpt is no longer clamped to 3 lines on the card — full
+//   excerpt text is shown ("Read More" clipping removed).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useTheme } from "@mui/material/styles";
 import {
   Box, Typography, Button, Stack, Avatar, AvatarGroup,
-  Divider, Skeleton, Chip, Alert, Collapse,
+  Divider, Skeleton, Chip, Alert, Collapse, Dialog, IconButton,
 } from "@mui/material";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CakeIcon from "@mui/icons-material/Cake";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import CloseIcon from "@mui/icons-material/Close";
 
 import { CreatorHeader } from "../components/shared/CreatorHeader";
-import { EngagementBar } from "../components/shared/EngagementBar";
 import { AudioControls } from "../components/shared/AudioControls";
 import { ArticleModal } from "../components/shared/ArticleModal";
 import PostComposer, { MediumReactionBar, isStoryLiked } from "../components/shared/PostComposer";
@@ -46,6 +57,8 @@ import {
   submitLoveStory,
   addLoveStoryComment,
   getStoryComments,
+  updateLoveStory,
+  deleteLoveStory,
 } from "../services/loveStories.service";
 import { ApiError } from "../services/api.service";
 
@@ -53,14 +66,10 @@ import { ApiError } from "../services/api.service";
 import type {
   Article as ApiArticle,
   Celebrity,
-  ArticleCategory,
   LoveStory as ApiLoveStory,
 } from "../types/api";
 
 // ── Local Article type used by existing components ────────────────────────────
-// Your existing components (CreatorHeader, EngagementBar, AudioControls,
-// ArticleModal) use a local Article type from ../types/article.
-// We map both API responses into that shape below.
 import type { Article } from "../types/article";
 import type { Writer } from "../types";
 
@@ -68,15 +77,14 @@ import type { Writer } from "../types";
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const LOVE_STORY_COLOR = "#EC407A";
-
 const MEDIA_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace("/api", "") ??
   "http://localhost:8000";
 
 /**
- * Every merged item remembers where it came from, so like/share/open
- * actions can be routed to the right backend endpoint.
+ * Every merged item remembers where it came from, so like/share/comment
+ * actions can be routed to the right backend endpoint. This is purely a
+ * data-plumbing detail now — it has no bearing on how the card looks.
  */
 type FeedSource = "article" | "love_story";
 
@@ -99,14 +107,16 @@ function resolveImg(img: string | null | undefined): string {
 }
 
 /** Map a generic API article → local Article shape expected by existing components */
-function mapApiArticle(a: ApiArticle): Article {
+function mapApiArticle(a: ApiArticle, accent: string): Article {
   return {
-    id: a.id,  // number — matches Article.id
+    id: a.id,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    authorId: (a.author as any)?.id,
     title: a.title,
     excerpt: a.excerpt,
     content: a.content,
-    category: a.category,
-    categoryColor: categoryColor(a.category),
+    category: "Article",
+    categoryColor: accent, // CHANGED: single accent, no per-category coloring
     img: resolveImg(a.image),
     audio: a.audio ?? undefined,
     readTime: `${Math.ceil(a.content.split(" ").length / 200)} min read`,
@@ -131,17 +141,18 @@ function mapApiArticle(a: ApiArticle): Article {
   };
 }
 
-/** Map a love story → the same local Article shape so it can sit in the same grid */
-function mapLoveStoryToArticle(s: ApiLoveStory): Article {
+/** Map a story (written via the shared composer) → the same local Article shape */
+function mapLoveStoryToArticle(s: ApiLoveStory, accent: string): Article {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw = s as any;
   return {
     id: s.id,
+    authorId: s.author,
     title: s.title,
     excerpt: s.excerpt,
     content: s.content,
-    category: "love_story",
-    categoryColor: LOVE_STORY_COLOR,
+    category: "Article",
+    categoryColor: accent, // CHANGED: same accent as every other card, no pink/purple
     img: resolveImg(s.image),
     audio: raw.audio_url ?? undefined,
     readTime: s.read_time ?? `${Math.ceil(s.content.split(" ").length / 200)} min read`,
@@ -164,28 +175,6 @@ function mapLoveStoryToArticle(s: ApiLoveStory): Article {
   };
 }
 
-function categoryColor(cat: ArticleCategory): string {
-  const map: Record<ArticleCategory, string> = {
-    birthday:   "#F5A623",
-    sports:     "#43A047",
-    love_story: LOVE_STORY_COLOR,
-    charity:    "#1565C0",
-    general:    "#7C3AED",
-  };
-  return map[cat] ?? "#F5A623";
-}
-
-function categoryLabel(cat: ArticleCategory): string {
-  const map: Record<ArticleCategory, string> = {
-    birthday:   "Birthdays",
-    sports:     "Sports",
-    love_story: "Love Stories",
-    charity:    "Charity",
-    general:    "General",
-  };
-  return map[cat] ?? cat;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Static writers for hero avatar strip
 // ─────────────────────────────────────────────────────────────────────────────
@@ -193,7 +182,7 @@ function categoryLabel(cat: ArticleCategory): string {
 const WRITERS: Writer[] = [
   { id: "1", name: "James Osei",     initials: "JO", role: "Staff Writer",        followers: "3.2k", color: "#E53935", verified: true },
   { id: "2", name: "Amara Diallo",   initials: "AD", role: "Community Writer",    followers: "1.8k", color: "#F5A623" },
-  { id: "3", name: "Sofia Mensah",   initials: "SM", role: "Love Stories Editor", followers: "2.5k", color: "#EC407A" },
+  { id: "3", name: "Sofia Mensah",   initials: "SM", role: "Writer",              followers: "2.5k", color: "#F5A623" },
   { id: "4", name: "Kwame Asante",   initials: "KA", role: "Sports Contributor",  followers: "4.1k", color: "#43A047" },
   { id: "5", name: "Fatima Al-Said", initials: "FA", role: "Community Writer",    followers: "1.2k", color: "#1565C0" },
   { id: "6", name: "David Nkrumah",  initials: "DN", role: "Sports Writer",       followers: "5.7k", color: "#7C3AED", verified: true },
@@ -205,14 +194,10 @@ const STATS = [
   { value: "4",      label: "Content Sections" },
 ];
 
-const CATEGORIES: Array<{ value: ArticleCategory | "all"; label: string }> = [
-  { value: "all",        label: "All" },
-  { value: "birthday",   label: "Birthdays" },
-  { value: "sports",     label: "Sports" },
-  { value: "love_story", label: "Love Stories" },
-  { value: "charity",    label: "Charity" },
-  { value: "general",    label: "General" },
-];
+// CHANGED: content isn't categorized anymore — everyone posts the same way,
+// so instead of category tabs we offer simple sorting, same options as the
+// compose page's own feed.
+const FILTERS = ["All", "Recent", "Most Liked", "Editor's Pick"];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ArticleCardSkeleton
@@ -251,150 +236,39 @@ const ArticleCardSkeleton: React.FC = () => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ArticleCard
+// ArticleCard — the ONLY card type now. Every feed item (whichever backend
+// source it came from) renders through this, with the same accent color and
+// the same fully-working comment section as the compose page.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ArticleCard: React.FC<{
   article: Article;
-  apiId: number;                           // real backend ID for like/share
-  onOpen: (a: Article) => void;
-  audio: ReturnType<typeof useAudio>;
-  onLike: (apiId: number) => void;
-  onShare: (apiId: number) => void;
-}> = ({ article, apiId, onOpen, audio, onLike, onShare }) => {
-  const theme  = useTheme();
-  const isDark = theme.palette.mode === "dark";
-  const gold   = theme.palette.gold?.main ?? "#F5A623";
-  const accent = article.categoryColor ?? gold;
-
-  return (
-    <article style={{
-      display: "flex", flexDirection: "column",
-      backgroundColor: theme.palette.background.paper,
-      borderRadius: theme.shape.borderRadius,
-      border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
-      padding: "1.5rem",
-    }}>
-      <CreatorHeader article={article} />
-
-      {/* Thumbnail */}
-      <div
-        onClick={() => onOpen(article)}
-        style={{
-          width: "100%", aspectRatio: "16/9",
-          overflow: "hidden", marginBottom: "1rem",
-          position: "relative", cursor: "pointer",
-          borderRadius: theme.shape.borderRadius,
-        }}
-      >
-        <img
-          src={article.img}
-          alt={article.title}
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", transition: "transform 0.4s ease" }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.03)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
-        />
-        {/* Bookmark badge */}
-        <div style={{
-          position: "absolute", top: 10, right: 10,
-          background: `${gold}26`, borderRadius: "50%",
-          width: 32, height: 32,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill={gold}>
-            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Category */}
-      <span style={{
-        fontFamily: theme.typography.fontFamily,
-        fontSize: "0.72rem", letterSpacing: "0.04em",
-        textTransform: "uppercase", color: accent,
-        marginBottom: "0.5rem",
-        display: "flex", alignItems: "center", gap: "0.4rem",
-      }}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill={accent}>
-          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z" />
-        </svg>
-        {categoryLabel(article.category as ArticleCategory)}
-      </span>
-
-      {/* Title */}
-      <h2
-        onClick={() => onOpen(article)}
-        style={{
-          fontFamily: theme.typography.fontFamily,
-          fontSize: "1.2rem", fontWeight: 700, lineHeight: 1.3,
-          color: theme.palette.text.primary,
-          marginBottom: "0.6rem", cursor: "pointer", transition: "color 0.15s",
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = accent; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = theme.palette.text.primary; }}
-      >
-        {article.title}
-      </h2>
-
-      {/* Excerpt */}
-      <p
-        onClick={() => onOpen(article)}
-        style={{
-          fontFamily: theme.typography.fontFamily,
-          fontSize: "0.9rem", color: theme.palette.text.secondary,
-          lineHeight: 1.58, marginBottom: "0.9rem", cursor: "pointer",
-          display: "-webkit-box",
-          WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden",
-        }}
-      >
-        {article.excerpt}
-      </p>
-
-      <p style={{
-        fontFamily: theme.typography.fontFamily,
-        fontSize: "0.82rem", color: theme.palette.text.secondary,
-        marginBottom: "0.75rem", opacity: 0.6,
-      }}>
-        {article.readTime}
-      </p>
-
-      <AudioControls articleId={article.id} audio={audio} color={accent} />
-
-      {/* Engagement bar — pass callbacks so parent updates counts */}
-      <EngagementBar
-        engagement={article.engagement}
-        color={accent}
-        onLike={() => onLike(apiId)}
-        onShare={() => onShare(apiId)}
-      />
-    </article>
-  );
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LoveStoryCard — used only for feed items where source === "love_story".
-// Mirrors the card used on the Love Stories page itself: bordered box,
-// pink accent, and a full MediumReactionBar so comments actually work here.
-// ─────────────────────────────────────────────────────────────────────────────
-
-const LoveStoryCard: React.FC<{
-  article: Article;
   apiId: number;
+  canEdit: boolean; // CHANGED: only true for love_story-sourced items with an update endpoint
   onOpen: (a: Article) => void;
   audio: ReturnType<typeof useAudio>;
   onLike: (apiId: number) => Promise<void>;
   onShare: (apiId: number) => Promise<void>;
-  onCommentSubmit: (apiId: number, text: string) => Promise<void>;
+  onCommentSubmit: (apiId: number, text: string) => Promise<Comment>;
   onFetchComments: (apiId: number) => Promise<Comment[]>;
+  onEdit: () => void;
   currentUser: { name: string; initials: string; avatarColor?: string; id?: number };
 }> = ({
-  article, apiId, onOpen, audio,
+  article, apiId, canEdit, onOpen, audio,
   onLike, onShare, onCommentSubmit, onFetchComments,
-  currentUser,
+  onEdit, currentUser,
 }) => {
   const theme  = useTheme();
   const isDark = theme.palette.mode === "dark";
-  const accent = article.categoryColor ?? LOVE_STORY_COLOR;
+  const gold   = theme.palette.gold?.main ?? "#F5A623";
+  const accent: string = article.categoryColor ?? gold; // CHANGED: guarantees a string, fixes TS2322
+
+  // CHANGED: same author check as the compose page, so the edit icon only
+  // shows on the current user's own posts.
+  const articleAuthorId = (article as { authorId?: number }).authorId;
+  const isAuthor = canEdit && currentUser.id !== undefined && articleAuthorId !== undefined
+    ? Number(currentUser.id) === Number(articleAuthorId)
+    : false;
 
   return (
     <article style={{
@@ -404,16 +278,28 @@ const LoveStoryCard: React.FC<{
       border: `1px solid ${isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
       padding: "1.5rem",
     }}>
-      <CreatorHeader article={article} />
-
-      {/* Category pill */}
-      <span style={{
-        fontFamily: SERIF, fontSize: "0.68rem", letterSpacing: "0.04em",
-        textTransform: "uppercase", color: accent,
-        marginBottom: "0.6rem", display: "inline-block",
-      }}>
-        {categoryLabel("love_story")}
-      </span>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <CreatorHeader article={article} />
+        </Box>
+        {/* CHANGED: edit pencil, same placement/behavior as the compose page.
+            flexShrink: 0 + fixed size keeps it from stealing width from
+            CreatorHeader's own internal name/Subscribe layout. */}
+        {isAuthor && (
+          <IconButton
+            size="small"
+            onClick={onEdit}
+            sx={{
+              flexShrink: 0,
+              color: theme.palette.text.disabled,
+              "&:hover": { color: accent, bgcolor: `${accent}18` },
+              transition: "color 0.2s",
+            }}
+          >
+            <EditOutlinedIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        )}
+      </Box>
 
       {/* Thumbnail */}
       {article.img && article.img !== "/placeholder.png" && (
@@ -422,7 +308,8 @@ const LoveStoryCard: React.FC<{
           style={{
             width: "100%", aspectRatio: "16/9",
             overflow: "hidden", marginBottom: "1rem",
-            cursor: "pointer", borderRadius: theme.shape.borderRadius,
+            position: "relative", cursor: "pointer",
+            borderRadius: theme.shape.borderRadius,
             backgroundColor: theme.palette.action.hover,
           }}
         >
@@ -450,22 +337,34 @@ const LoveStoryCard: React.FC<{
         {article.title}
       </h2>
 
-      {/* Excerpt */}
+      {/*
+        CHANGED: "Read More" clipping removed — the excerpt used to be
+        clamped to 3 lines with -webkit-line-clamp. It now renders in full,
+        so the whole excerpt is always visible on the card without needing
+        to click into the modal to read the rest of it.
+      */}
       <p
         onClick={() => onOpen(article)}
         style={{
           fontFamily: SERIF, fontSize: "0.9rem", color: theme.palette.text.secondary,
           lineHeight: 1.58, marginBottom: "0.9rem", cursor: "pointer",
-          display: "-webkit-box",
-          WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden",
         }}
       >
         {article.excerpt}
       </p>
 
+      <p style={{
+        fontFamily: SERIF,
+        fontSize: "0.82rem", color: theme.palette.text.secondary,
+        marginBottom: "0.75rem", opacity: 0.6,
+      }}>
+        {article.readTime}
+      </p>
+
       <AudioControls articleId={article.id} audio={audio} color={accent} />
 
-      {/* Full reaction bar — like, comment (working), share */}
+      {/* CHANGED: every card now gets the full reaction bar, with working
+          comments, exactly like the compose page — not just story-sourced items */}
       <MediumReactionBar
         storyId={apiId}
         likes={article.engagement.likes}
@@ -482,8 +381,6 @@ const LoveStoryCard: React.FC<{
     </article>
   );
 };
-
-
 
 const BirthdayStrip: React.FC<{ celebrities: Celebrity[] }> = ({ celebrities }) => {
   const theme = useTheme();
@@ -579,7 +476,7 @@ const Hero: React.FC<{ onShareStory: () => void }> = ({ onShareStory }) => {
           fontSize: { xs: "0.85rem", sm: "0.9rem", md: "1rem", lg: "1.05rem" },
           px: { xs: 1, sm: 0 },
         }}>
-          Your home for celebrity birthdays, love stories, sports action and community support.
+          Your home for celebrity birthdays, community stories, sports action and community support.
         </Typography>
 
         <Stack direction={{ xs: "column", sm: "row" }} spacing={{ xs: 1.5, sm: 2 }}
@@ -598,7 +495,7 @@ const Hero: React.FC<{ onShareStory: () => void }> = ({ onShareStory }) => {
             fontSize: { xs: "0.9rem", md: "1rem" },
             borderColor: "rgba(255,255,255,0.3)", color: HERO_TEXT,
             "&:hover": { borderColor: HERO_TEXT, bgcolor: "rgba(255,255,255,0.06)" },
-          }}>Share Your Story</Button>
+          }}>Write an Article</Button>
         </Stack>
 
         <Stack direction="row" spacing={{ xs: 2, sm: 4 }} justifyContent="center"
@@ -641,7 +538,7 @@ const Hero: React.FC<{ onShareStory: () => void }> = ({ onShareStory }) => {
 // Main Page
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 6; // how many merged items to reveal per "Load more" click
+const PAGE_SIZE = 6;
 
 export default function AeonFeed() {
   const theme  = useTheme();
@@ -650,8 +547,8 @@ export default function AeonFeed() {
   const audio  = useAudio();
   const { user: authUser } = useAuth();
 
-  // composer accent uses the site's gold theme color, not a hardcoded purple,
-  // so the "Share Your Story" box matches Home's palette
+  // CHANGED: composer/reaction accent is gold everywhere on Home — purple is
+  // reserved for the profile/subscribe UI and never appears here.
   const composerUser = authUser
     ? {
         id:          authUser.id,
@@ -668,7 +565,15 @@ export default function AeonFeed() {
   const [posting, setPosting]           = useState(false);
   const [postError, setPostError]       = useState<string | null>(null);
 
+  // CHANGED: guests are stopped here, before the composer ever opens, with a
+  // clear message instead of letting them type a whole story only to hit a
+  // raw "no token" error on submit.
   const handleShareStoryClick = () => {
+    if (!authUser) {
+      setPostError("Please sign in to write an article.");
+      composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     setComposerOpen(true);
     composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
@@ -676,19 +581,20 @@ export default function AeonFeed() {
   // ── State ────────────────────────────────────────────────────────────────
   const [activeItem, setActiveItem] = useState<FeedItem | null>(null);
   const activeArticle = activeItem?.article ?? null;
-  const [activeCategory, setActiveCategory] = useState<ArticleCategory | "all">("all");
+  const [activeFilter, setActiveFilter] = useState("All"); // CHANGED: sort filter, not category
 
-  // Raw merged feed (articles + love stories), always fetched in full then
-  // paginated client-side via `visibleCount` — this keeps "Load more" simple
-  // and correct across two independently-paginated backend sources.
-  const [feed, setFeed]               = useState<FeedItem[]>([]);
+  const [feed, setFeed]                 = useState<FeedItem[]>([]);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [feedLoading, setFeedLoading] = useState(true);
-  const [feedError, setFeedError]     = useState<string | null>(null);
+  const [feedLoading, setFeedLoading]   = useState(true);
+  const [feedError, setFeedError]       = useState<string | null>(null);
 
-  // Birthdays
-  const [birthdays, setBirthdays]           = useState<Celebrity[]>([]);
+  const [birthdays, setBirthdays]               = useState<Celebrity[]>([]);
   const [birthdaysLoading, setBirthdaysLoading] = useState(true);
+
+  // ── Edit / delete state — same pattern as the compose page ────────────────
+  const [editingItem, setEditingItem] = useState<FeedItem | null>(null);
+  const [editing, setEditing]         = useState(false);
+  const [editError, setEditError]     = useState<string | null>(null);
 
   // ── Fetch + merge both sources ────────────────────────────────────────────
   const fetchFeed = useCallback(async () => {
@@ -704,18 +610,16 @@ export default function AeonFeed() {
 
       if (articlesRes.status === "fulfilled") {
         for (const a of articlesRes.value.results) {
-          items.push({ source: "article", apiId: a.id, article: mapApiArticle(a) });
+          items.push({ source: "article", apiId: a.id, article: mapApiArticle(a, gold) });
         }
       }
 
       if (loveStoriesRes.status === "fulfilled") {
         for (const s of loveStoriesRes.value.results) {
-          items.push({ source: "love_story", apiId: s.id, article: mapLoveStoryToArticle(s) });
+          items.push({ source: "love_story", apiId: s.id, article: mapLoveStoryToArticle(s, gold) });
         }
       }
 
-      // If BOTH sources failed, surface an error. If only one failed,
-      // show what we have rather than blocking the whole feed.
       if (articlesRes.status === "rejected" && loveStoriesRes.status === "rejected") {
         const err = articlesRes.reason;
         setFeedError(err instanceof ApiError ? err.firstError : "Failed to load articles.");
@@ -732,7 +636,7 @@ export default function AeonFeed() {
     } finally {
       setFeedLoading(false);
     }
-  }, []);
+  }, [gold]);
 
   useEffect(() => { fetchFeed(); }, [fetchFeed]);
 
@@ -744,25 +648,42 @@ export default function AeonFeed() {
       .finally(() => setBirthdaysLoading(false));
   }, []);
 
-  // ── Reset pagination when category changes ───────────────────────────────
+  // ── Reset pagination when filter changes ──────────────────────────────────
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [activeCategory]);
+  }, [activeFilter]);
 
-  // ── Filter by active category (client-side, across the merged feed) ─────
+  // CHANGED: no more category filtering — just sorting/filtering the same
+  // merged list, same options as the compose page (feed is already newest
+  // first from fetchFeed, so "Recent" is a no-op pass-through).
   const filteredFeed = useMemo(() => {
-    if (activeCategory === "all") return feed;
-    return feed.filter((item) => item.article.category === activeCategory);
-  }, [feed, activeCategory]);
+    let list = feed;
+    if (activeFilter === "Most Liked") {
+      list = [...list].sort((a, b) => b.article.engagement.likes - a.article.engagement.likes);
+    } else if (activeFilter === "Editor's Pick") {
+      list = list.filter((item) => item.article.isEditorsPick);
+    }
+    return list;
+  }, [feed, activeFilter]);
 
   const visibleFeed = filteredFeed.slice(0, visibleCount);
   const hasMore = visibleCount < filteredFeed.length;
 
   const handleLoadMore = () => setVisibleCount((c) => c + PAGE_SIZE);
 
-  // ── Composer: post a new love story from Home ─────────────────────────────
+  // ── Composer: post a new article from Home ────────────────────────────────
+  // CHANGED: 401/403 (missing or expired token) now gets a clean, specific
+  // message instead of surfacing the raw backend error text. Guests are
+  // already stopped in handleShareStoryClick, but this also covers the case
+  // where a session expires while the composer is open.
   const handlePost = useCallback(async (data: { title: string; text: string; mediaFiles?: File[] }) => {
     if (!data.title.trim() && !data.text.trim() && (!data.mediaFiles || data.mediaFiles.length === 0)) return;
+
+    if (!authUser) {
+      setPostError("Please sign in to write an article.");
+      return;
+    }
+
     setPosting(true);
     setPostError(null);
     try {
@@ -775,44 +696,100 @@ export default function AeonFeed() {
       setComposerOpen(false);
       await fetchFeed();
     } catch (err: unknown) {
-      setPostError(err instanceof ApiError
-        ? err.firstError
-        : "Failed to post story. Make sure you are logged in.");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const status = err instanceof ApiError ? (err as any).status : undefined;
+      const isAuthError = status === 401 || status === 403;
+      setPostError(
+        isAuthError
+          ? "Your session has expired. Please sign in again to share your story."
+          : err instanceof ApiError
+            ? err.firstError
+            : "Failed to post story. Please try again.",
+      );
     } finally {
       setPosting(false);
     }
-  }, [fetchFeed]);
+  }, [authUser, fetchFeed]);
 
-  // ── Comment submit (love stories only — articles have no comment endpoint) ─
-  const handleCommentSubmit = useCallback(async (apiId: number, text: string) => {
-    if (!text.trim()) return;
-    const bump = (item: FeedItem) =>
-      item.source === "love_story" && item.apiId === apiId
-        ? { ...item, article: { ...item.article, engagement: { ...item.article.engagement, comments: item.article.engagement.comments + 1 } } }
-        : item;
-    setFeed((prev) => prev.map(bump));
+  // ── Edit / save — same flow as the compose page's edit dialog ─────────────
+  // NOTE: only love_story-sourced items have an update endpoint today. If
+  // your API grows an updateArticle() for plain articles, add it here.
+  const handleEditPost = useCallback(async (data: { title: string; text: string; mediaFiles?: File[] }) => {
+    if (!editingItem) return;
+    setEditing(true);
+    setEditError(null);
     try {
-      await addLoveStoryComment(apiId, text);
-    } catch {
-      const unbump = (item: FeedItem) =>
-        item.source === "love_story" && item.apiId === apiId
-          ? { ...item, article: { ...item.article, engagement: { ...item.article.engagement, comments: item.article.engagement.comments - 1 } } }
-          : item;
-      setFeed((prev) => prev.map(unbump));
-      throw new Error("Failed to post comment.");
+      await updateLoveStory(editingItem.apiId, {
+        title:      data.title.trim() || data.text.slice(0, 80),
+        excerpt:    data.text.slice(0, 160),
+        content:    data.text,
+        mediaFiles: data.mediaFiles && data.mediaFiles.length > 0 ? data.mediaFiles : undefined,
+      });
+      await fetchFeed();
+      setEditingItem(null);
+    } catch (err: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const status = err instanceof ApiError ? (err as any).status : undefined;
+      const isAuthError = status === 401 || status === 403;
+      setEditError(
+        isAuthError
+          ? "Your session has expired. Please sign in again to update this article."
+          : err instanceof ApiError
+            ? err.firstError
+            : "Failed to update article. Please try again.",
+      );
+    } finally {
+      setEditing(false);
     }
-  }, []);
+  }, [editingItem, fetchFeed]);
+
+  const handleDelete = useCallback(async () => {
+    if (!editingItem) return;
+    const { apiId } = editingItem;
+    await deleteLoveStory(apiId);
+    setFeed((prev) => prev.filter((item) => !(item.source === "love_story" && item.apiId === apiId)));
+    setActiveItem((prev) => prev && prev.source === "love_story" && prev.apiId === apiId ? null : prev);
+    setEditingItem(null);
+  }, [editingItem]);
+
+  // ── Comment submit — routed by source, same shape as the compose page ─────
+  const handleCommentSubmit = useCallback(async (apiId: number, source: FeedSource, text: string): Promise<Comment> => {
+    if (source === "love_story") {
+      const saved = await addLoveStoryComment(apiId, text);
+      const mapped: Comment = {
+        id:          saved.id,
+        author:      saved.author,
+        initials:    saved.initials,
+        avatarColor: gold,
+        text:        saved.text,
+        timestamp:   saved.timestamp,
+      };
+      const bump = (item: FeedItem) =>
+        item.source === "love_story" && item.apiId === apiId
+          ? { ...item, article: { ...item.article, engagement: { ...item.article.engagement, comments: saved.comments } } }
+          : item;
+      setFeed((prev) => prev.map(bump));
+      setActiveItem((prev) => prev && prev.source === "love_story" && prev.apiId === apiId ? bump(prev) : prev);
+      return mapped;
+    }
+
+    // Plain articles don't have a comment endpoint yet — surface a clear error
+    // instead of silently failing, matching the compose page's error handling.
+    throw new Error("Comments aren't available on this article yet.");
+  }, [gold]);
 
   // ── Fetch comments — syncs the authoritative count back into the feed ─────
-  const handleFetchComments = useCallback(async (apiId: number): Promise<Comment[]> => {
+  const handleFetchComments = useCallback(async (apiId: number, source: FeedSource): Promise<Comment[]> => {
+    if (source !== "love_story") return [];
+
     const raw = await getStoryComments(apiId);
     const mapped: Comment[] = raw.map((c) => ({
       id:          c.id,
-      author:      c.author_name ?? "Anonymous",
-      initials:    (c.author_name ?? "AN").slice(0, 2).toUpperCase(),
+      author:      c.author,
+      initials:    c.initials,
       avatarColor: gold,
       text:        c.text,
-      timestamp:   c.created_at,
+      timestamp:   c.timestamp,
     }));
 
     setFeed((prev) => prev.map((item) =>
@@ -826,12 +803,16 @@ export default function AeonFeed() {
 
   // ── Like (optimistic update, routed by source) ────────────────────────────
   const handleLike = useCallback(async (apiId: number, source: FeedSource) => {
-    const adjust = (delta: number) => (item: FeedItem) =>
+    const alreadyLiked = isStoryLiked(apiId);
+    const delta = alreadyLiked ? -1 : 1;
+
+    const adjust = (d: number) => (item: FeedItem) =>
       item.source === source && item.apiId === apiId
-        ? { ...item, article: { ...item.article, engagement: { ...item.article.engagement, likes: item.article.engagement.likes + delta } } }
+        ? { ...item, article: { ...item.article, engagement: { ...item.article.engagement, likes: Math.max(0, item.article.engagement.likes + d) } } }
         : item;
 
-    setFeed((prev) => prev.map(adjust(1)));
+    setFeed((prev) => prev.map(adjust(delta)));
+
     try {
       if (source === "love_story") {
         await likeLoveStory(apiId);
@@ -839,7 +820,7 @@ export default function AeonFeed() {
         await likeArticle(apiId);
       }
     } catch {
-      setFeed((prev) => prev.map(adjust(-1)));
+      setFeed((prev) => prev.map(adjust(-delta)));
     }
   }, []);
 
@@ -873,12 +854,28 @@ export default function AeonFeed() {
         pt: { xs: 4, md: 6 },
       }}>
         <Box ref={composerRef} sx={{ maxWidth: 680, mx: "auto" }}>
+          {/*
+            CHANGED: this alert now doubles as the "please sign in" feedback
+            when a guest clicks "Write an Article" — it shows even when the
+            composer itself never opens, plus a Sign in action for guests.
+          */}
           <Collapse in={!!postError}>
-            <Alert severity="warning" sx={{ mb: 1.5 }} onClose={() => setPostError(null)}>
+            <Alert
+              severity="warning"
+              sx={{ mb: 1.5 }}
+              onClose={() => setPostError(null)}
+              action={
+                !authUser ? (
+                  <Button size="small" component="a" href="/login">
+                    Sign in
+                  </Button>
+                ) : undefined
+              }
+            >
               {postError}
             </Alert>
           </Collapse>
-          {composerOpen && (
+          {composerOpen && authUser && (
             <PostComposer
               user={composerUser}
               placeholder="Share your story…"
@@ -899,10 +896,8 @@ export default function AeonFeed() {
         px: { xs: 2, sm: 3, md: 6, lg: 10 },
       }}>
 
-        {/* Birthday strip */}
         {!birthdaysLoading && <BirthdayStrip celebrities={birthdays} />}
 
-        {/* Section header */}
         <Box
           display="flex" justifyContent="space-between" alignItems="center"
           mb={{ xs: 2, md: 3 }}
@@ -942,40 +937,35 @@ export default function AeonFeed() {
           </Button>
         </Box>
 
-        {/* Category filter tabs */}
         <Stack direction="row" spacing={1} flexWrap="wrap" gap={1} mb={3}>
-          {CATEGORIES.map((cat) => (
-            <Chip
-              key={cat.value}
-              label={cat.label}
-              clickable
-              onClick={() => setActiveCategory(cat.value)}
-              sx={{
-                fontWeight: 600,
-                fontSize: "0.8rem",
-                bgcolor: activeCategory === cat.value ? gold : "transparent",
-                color: activeCategory === cat.value
-                  ? "#000"
-                  : theme.palette.text.secondary,
-                border: `1px solid ${activeCategory === cat.value ? gold : isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)"}`,
-                transition: "all 0.2s",
-                "&:hover": { bgcolor: activeCategory === cat.value ? gold : `${gold}22` },
-              }}
-            />
-          ))}
+          {FILTERS.map((f) => {
+            const active = activeFilter === f;
+            return (
+              <Chip
+                key={f}
+                label={f}
+                clickable
+                onClick={() => setActiveFilter(f)}
+                sx={{
+                  fontWeight: 600,
+                  fontSize: "0.8rem",
+                  bgcolor: active ? gold : "transparent",
+                  color: active ? "#000" : theme.palette.text.secondary,
+                  border: `1px solid ${active ? gold : isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)"}`,
+                  transition: "all 0.2s",
+                  "&:hover": { bgcolor: active ? gold : `${gold}22` },
+                }}
+              />
+            );
+          })}
         </Stack>
 
-        {/* Error state */}
         <Collapse in={!!feedError}>
           <Alert
             severity="error"
             sx={{ mb: 3 }}
             action={
-              <Button
-                size="small"
-                startIcon={<RefreshIcon />}
-                onClick={fetchFeed}
-              >
+              <Button size="small" startIcon={<RefreshIcon />} onClick={fetchFeed}>
                 Retry
               </Button>
             }
@@ -985,57 +975,43 @@ export default function AeonFeed() {
           </Alert>
         </Collapse>
 
-        {/* Article grid */}
+        {/* Article grid — single card type for every item */}
         <div style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
           gap: "2rem",
           paddingBottom: "2rem",
         }}>
-          {/* Loading skeletons */}
           {feedLoading && feed.length === 0 &&
             Array.from({ length: 6 }).map((_, i) => <ArticleCardSkeleton key={i} />)
           }
 
-          {/* Actual cards */}
-          {visibleFeed.map((item) =>
-            item.source === "love_story" ? (
-              <LoveStoryCard
-                key={`${item.source}-${item.apiId}`}
-                article={item.article}
-                apiId={item.apiId}
-                onOpen={() => setActiveItem(item)}
-                audio={audio}
-                onLike={(apiId) => handleLike(apiId, "love_story")}
-                onShare={(apiId) => handleShare(apiId, "love_story")}
-                onCommentSubmit={handleCommentSubmit}
-                onFetchComments={handleFetchComments}
-                currentUser={composerUser}
-              />
-            ) : (
-              <ArticleCard
-                key={`${item.source}-${item.apiId}`}
-                article={item.article}
-                apiId={item.apiId}
-                onOpen={() => setActiveItem(item)}
-                audio={audio}
-                onLike={(apiId) => handleLike(apiId, "article")}
-                onShare={(apiId) => handleShare(apiId, "article")}
-              />
-            ),
-          )}
+          {visibleFeed.map((item) => (
+            <ArticleCard
+              key={`${item.source}-${item.apiId}`}
+              article={item.article}
+              apiId={item.apiId}
+              canEdit={item.source === "love_story"}
+              onOpen={() => setActiveItem(item)}
+              audio={audio}
+              onLike={(apiId) => handleLike(apiId, item.source)}
+              onShare={(apiId) => handleShare(apiId, item.source)}
+              onCommentSubmit={(apiId, text) => handleCommentSubmit(apiId, item.source, text)}
+              onFetchComments={(apiId) => handleFetchComments(apiId, item.source)}
+              onEdit={() => setEditingItem(item)}
+              currentUser={composerUser}
+            />
+          ))}
         </div>
 
-        {/* Empty state */}
         {!feedLoading && filteredFeed.length === 0 && !feedError && (
           <Box textAlign="center" py={8}>
             <Typography color="text.secondary" fontSize="1rem">
-              No articles found{activeCategory !== "all" ? ` in ${categoryLabel(activeCategory as ArticleCategory)}` : ""}.
+              No articles found yet.
             </Typography>
           </Box>
         )}
 
-        {/* Load more */}
         {hasMore && !feedLoading && (
           <Box display="flex" justifyContent="center" mt={2} pb={4}>
             <Button
@@ -1063,6 +1039,67 @@ export default function AeonFeed() {
           onShare={() => handleShare(activeItem.apiId, activeItem.source)}
         />
       )}
+
+      {/* EDIT DIALOG — same pattern as the compose page */}
+      <Dialog
+        open={!!editingItem}
+        onClose={() => !editing && setEditingItem(null)}
+        fullWidth
+        maxWidth="sm"
+        PaperProps={{
+          sx: {
+            borderRadius: "16px",
+            bgcolor: theme.palette.background.paper,
+            backgroundImage: "none",
+            overflow: "visible",
+          },
+        }}
+      >
+        <Box>
+          <Stack
+            direction="row"
+            justifyContent="space-between"
+            alignItems="center"
+            sx={{ px: 2.5, pt: 2, pb: 0 }}
+          >
+            <Typography sx={{
+              fontFamily: SERIF, fontWeight: 700, fontSize: "1rem",
+              color: theme.palette.text.primary,
+            }}>
+              Edit Article
+            </Typography>
+            <IconButton size="small" onClick={() => setEditingItem(null)} disabled={editing}>
+              <CloseIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Stack>
+
+          <Collapse in={!!editError}>
+            <Alert severity="warning" sx={{ mx: 2.5, mt: 1.5 }} onClose={() => setEditError(null)}>
+              {editError}
+            </Alert>
+          </Collapse>
+
+          {editingItem && (
+            <PostComposer
+              key={`${editingItem.source}-${editingItem.apiId}`}
+              user={composerUser}
+              accentColor={gold}
+              initialText={editingItem.article.content}
+              currentImageUrl={
+                editingItem.article.img && editingItem.article.img !== "/placeholder.png"
+                  ? editingItem.article.img
+                  : undefined
+              }
+              editMode
+              loading={editing}
+              canDelete
+              onPost={handleEditPost}
+              onDelete={handleDelete}
+              onCancel={() => setEditingItem(null)}
+            />
+          )}
+        </Box>
+      </Dialog>
     </Box>
   );
 }

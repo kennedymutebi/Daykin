@@ -45,7 +45,7 @@ function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, s: number
     const a  = angle + (i * Math.PI) / spikes;
     const px = x + Math.cos(a) * r;
     const py = y + Math.sin(a) * r;
-    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
   }
   ctx.closePath();
 }
@@ -76,7 +76,7 @@ export default function HeroBirthdayCanvas() {
 
     let W = 0, H = 0;
     let particles: P[]    = [];
-    let sparks:    Spark[] = [];
+    const sparks:    Spark[] = [];
     let tick = 0;
     let raf  = 0;
     let mouseX = -999, mouseY = -999;

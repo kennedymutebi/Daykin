@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://84.247.171.71:8085/api";
+  import.meta.env.VITE_API_BASE_URL ?? "https://ebiseera.com:9443/api";
 
 // Token storage key (localStorage)
 export const AUTH_TOKEN_KEY = "daykin_access_token";

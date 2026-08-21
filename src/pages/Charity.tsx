@@ -18,7 +18,6 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 
 import ArticleSearchBar from "../components/shared/ArticleSearchBar";
 
-import { useAudio } from "../hooks/useAudio";
 import { CHARITY_CASES, type CharityCase } from "../data/charityArticles";
 
 const SERIF           = "'Playfair Display', Georgia, serif";
@@ -481,7 +480,7 @@ export default function CharityPage() {
   const accent     = theme.palette.primary.main;
   const accentText = theme.palette.primary.contrastText;
 
-  const [activeCause,   setActiveCause]  = useState<CharityCase | null>(null);
+  const [, setActiveCause]  = useState<CharityCase | null>(null);
   const [donateCause,  setDonateCause]  = useState<CharityCase | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");
   const [searchQuery,  setSearchQuery]  = useState("");

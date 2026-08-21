@@ -61,7 +61,7 @@ const Navbar: React.FC = () => {
     try {
       const me = await getMe();
       setCurrentUser(me);
-    } catch (err) {
+    } catch {
       setCurrentUser(null);
     }
   };
@@ -104,10 +104,11 @@ const Navbar: React.FC = () => {
       setCurrentUser(me);
       setAuthOpen(false);
       setAuthError(null);
-    } catch (err: any) {
+    } catch (err) {
       // FIX: firstError pulls the real Django message e.g.
       // "No active account found with the given credentials."
-      setAuthError(err?.firstError ?? err?.message ?? "Something went wrong. Please try again.");
+      const apiErr = err as { firstError?: string; message?: string };
+      setAuthError(apiErr.firstError ?? apiErr.message ?? "Something went wrong. Please try again.");
     } finally {
       setAuthLoading(false);
     }
@@ -143,7 +144,7 @@ const Navbar: React.FC = () => {
             sx={{ cursor: "pointer", flexShrink: 0 }}
           >
             <Box
-              component="img" src={logo} alt="Daykin logo"
+              component="img" src={logo} alt="Ebiseera logo"
               sx={{
                 width: { xs: 30, md: 36 }, height: { xs: 30, md: 36 },
                 borderRadius: 1.5, objectFit: "cover",
@@ -157,8 +158,8 @@ const Navbar: React.FC = () => {
                 lineHeight: 1, letterSpacing: "-0.5px",
               }}
             >
-              <Box component="span" sx={{ color: gold }}>Day</Box>
-              <Box component="span" sx={{ color: textPrimary }}>kin</Box>
+              <Box component="span" sx={{ color: gold }}>Ebi</Box>
+              <Box component="span" sx={{ color: textPrimary }}>seera</Box>
             </Typography>
           </Box>
 
@@ -331,12 +332,12 @@ const Navbar: React.FC = () => {
             sx={{ cursor: "pointer" }}
           >
             <Box
-              component="img" src={logo} alt="Daykin"
+              component="img" src={logo} alt="Ebiseera"
               sx={{ width: 28, height: 28, borderRadius: 1, objectFit: "cover" }}
             />
             <Typography sx={{ fontFamily: theme.typography.fontFamily, fontWeight: 900, fontSize: "1rem" }}>
-              <Box component="span" sx={{ color: gold }}>Day</Box>
-              <Box component="span" sx={{ color: textPrimary }}>kin</Box>
+              <Box component="span" sx={{ color: gold }}>Ebi</Box>
+              <Box component="span" sx={{ color: textPrimary }}>seera</Box>
             </Typography>
           </Box>
           <IconButton

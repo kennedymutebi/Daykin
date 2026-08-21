@@ -45,15 +45,32 @@ const shared = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Palette rationale (matches the teal / marigold / orange identity already
+// established by the birthday-card poster in BirthdayFeed.tsx):
+//
+//  - Gold is no longer a flat pasted-in amber (#F5A623 in both modes). It's
+//    deepened and de-saturated slightly for light mode (sits on off-white —
+//    needs weight to read as "gold" rather than "traffic-cone orange"), and
+//    kept brighter for dark mode (needs to pop off near-black). Same hue
+//    family, tuned per background instead of copy-pasted.
+//  - Secondary was previously just background.default restated — an unused
+//    slot. It's now the teal from the birthday poster, giving the app an
+//    actual second color to create contrast/tension against the gold,
+//    instead of a single accent floating on neutral gray/near-black.
+//  - Backgrounds warmed very slightly off pure gray/near-black so they don't
+//    read as generic dashboard neutrals.
+// ---------------------------------------------------------------------------
+
 export const darkTheme: Theme = createTheme({
   ...shared,
   palette: {
     mode: "dark",
-    primary:    { main: "#F5A623", contrastText: "#0D0D0D" },
-    secondary:  { main: "#1A1A2E", contrastText: "#F5F5F7" },
-    background: { default: "#1A1A2E", paper: "#2A2A3E" },
+    primary:    { main: "#F0B429", contrastText: "#0D0D0D" },
+    secondary:  { main: "#1FAEC0", contrastText: "#0D0D0D" },
+    background: { default: "#161B2E", paper: "#232840" },
     text:       { primary: "#F5F5F7", secondary: "#9E9E9E" },
-    gold:       { main: "#F5A623" },
+    gold:       { main: "#F0B429" },
   },
 });
 
@@ -61,11 +78,11 @@ export const lightTheme: Theme = createTheme({
   ...shared,
   palette: {
     mode: "light",
-    primary:    { main: "#F5A623", contrastText: "#0D0D0D" },
-    secondary:  { main: "#F5F5F7", contrastText: "#0D0D0D" },
-    background: { default: "#F5F5F7", paper: "#FFFFFF" },
+    primary:    { main: "#C97F0E", contrastText: "#FFFFFF" },
+    secondary:  { main: "#127D8C", contrastText: "#FFFFFF" },
+    background: { default: "#FAF7F2", paper: "#FFFFFF" },
     text:       { primary: "#0D0D0D", secondary: "#6B6B6B" },
-    gold:       { main: "#F5A623" },
+    gold:       { main: "#C97F0E" },
   },
 });
 
