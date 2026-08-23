@@ -253,7 +253,7 @@ const Navbar: React.FC = () => {
                   },
                 }}
               >
-                Join free
+                sign up
               </Button>
             )}
 
