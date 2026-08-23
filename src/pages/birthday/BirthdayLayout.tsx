@@ -66,7 +66,7 @@ const BirthdayLayout: React.FC = () => {
           <Box display="flex" alignItems="center" gap={1}>
             <Box
               component="img"
-              src="/birthday2.jpg"
+              src="/dist/769.jpg"
               alt="Birthday"
               sx={{
                 width: { xs: 28, md: 32 },
