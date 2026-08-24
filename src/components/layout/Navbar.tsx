@@ -22,6 +22,7 @@ import userAvatar      from "../../assets/profilepic.jpg";
 
 
 import { login, register, logout, getMe } from "../../services/auth.service";
+import { ApiError } from "../../services/api.service";
 import type { LoginPayload, RegisterPayload, User } from "../../types/api";
 
 const NAV_LINKS = [
@@ -61,7 +62,7 @@ const Navbar: React.FC = () => {
     try {
       const me = await getMe();
       setCurrentUser(me);
-    } catch (err) {
+    } catch {
       setCurrentUser(null);
     }
   };
@@ -104,10 +105,14 @@ const Navbar: React.FC = () => {
       setCurrentUser(me);
       setAuthOpen(false);
       setAuthError(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // FIX: firstError pulls the real Django message e.g.
       // "No active account found with the given credentials."
-      setAuthError(err?.firstError ?? err?.message ?? "Something went wrong. Please try again.");
+      setAuthError(
+        err instanceof ApiError ? err.firstError
+        : err instanceof Error  ? err.message
+        : "Something went wrong. Please try again.",
+      );
     } finally {
       setAuthLoading(false);
     }
@@ -253,7 +258,7 @@ const Navbar: React.FC = () => {
                   },
                 }}
               >
-                Join free
+                sign up
               </Button>
             )}
 

@@ -1,7 +1,7 @@
 import React from "react";
 import { useTheme } from "@mui/material/styles";
 import { IconButton, Tooltip } from "@mui/material";
-import { useThemeMode } from "../../context/ThemeContext";
+import { useThemeMode } from "../../context/theme.context";
 
 export const ThemeToggle: React.FC = () => {
   const theme = useTheme();

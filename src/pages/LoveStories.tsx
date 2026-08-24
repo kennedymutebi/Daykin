@@ -12,11 +12,8 @@ import RefreshIcon             from "@mui/icons-material/Refresh";
 import EditOutlinedIcon        from "@mui/icons-material/EditOutlined";
 import CloseIcon               from "@mui/icons-material/Close";
 
-import PostComposer, {
-  MediumReactionBar,
-  isStoryLiked,
-  setStoryLiked,
-} from "../components/shared/PostComposer";
+import PostComposer, { MediumReactionBar } from "../components/shared/PostComposer";
+import { isStoryLiked, setStoryLiked } from "../utils/storyStorage";
 import type { Comment } from "../components/shared/ReactionMessenger";
 import ArticleSearchBar  from "../components/shared/ArticleSearchBar";
 import { AudioControls } from "../components/shared/AudioControls";
@@ -185,8 +182,8 @@ const ArticleCard: React.FC<{
 
   // ── FIX: author check uses id when available, falls back to name
   // We also watch currentUser reactively so no refresh is needed after login
-  const isAuthor = currentUser.id !== undefined && (article as any).authorId !== undefined
-    ? Number(currentUser.id) === Number((article as any).authorId)
+  const isAuthor = currentUser.id !== undefined && article.authorId !== undefined
+    ? Number(currentUser.id) === Number(article.authorId)
     : currentUser.name !== "Guest" && currentUser.name === article.author.name;
 
   const storyId = article.apiId ?? article.id;
@@ -275,7 +272,7 @@ const ArticleCard: React.FC<{
         {/* Avatar */}
         <Avatar sx={{
           width: 24, height: 24,
-          bgcolor: (article.author as any).color ?? ACCENT,
+          bgcolor: article.author.color ?? ACCENT,
           fontFamily: SERIF, fontSize: "0.55rem", fontWeight: 700,
           flexShrink: 0,
         }}>
@@ -359,18 +356,23 @@ export default function LoveStoriesPage() {
   const audio = useAudio();
   const { user: authUser } = useAuth();
 
-  // ── FIX: build composerUser fresh every render so edit icon reacts immediately
-  // after login without needing a page refresh
-  const composerUser = authUser
-    ? {
-        id:          authUser.id,
-        name:        authUser.name,
-        initials:    authUser.initials,
-        avatarSrc:   authUser.avatarSrc,
-        color:       COMPOSER_ACCENT,
-        avatarColor: COMPOSER_ACCENT,
-      }
-    : { name: "Guest", initials: "G", color: COMPOSER_ACCENT, avatarColor: COMPOSER_ACCENT };
+  // ── FIX: memoise composerUser on authUser so the edit icon reacts immediately
+  // after login without needing a page refresh, and the ref effect below only
+  // re-runs when the user actually changes.
+  const composerUser = useMemo(
+    () =>
+      authUser
+        ? {
+            id:          authUser.id,
+            name:        authUser.name,
+            initials:    authUser.initials,
+            avatarSrc:   authUser.avatarSrc,
+            color:       COMPOSER_ACCENT,
+            avatarColor: COMPOSER_ACCENT,
+          }
+        : { name: "Guest", initials: "G", color: COMPOSER_ACCENT, avatarColor: COMPOSER_ACCENT },
+    [authUser],
+  );
 
   // Keep a ref so callbacks always see latest composerUser without re-creating them
   const composerUserRef = useRef(composerUser);
@@ -517,7 +519,7 @@ export default function LoveStoriesPage() {
   }, []);
 
   // ── Comment icon tap ───────────────────────────────────────────────────────
-  const handleComment = useCallback((_apiId: number) => {
+  const handleComment = useCallback(() => {
     // ReactionMessenger manages its own open state
   }, []);
 

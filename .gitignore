@@ -7,10 +7,14 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies and build
 node_modules
 dist
 dist-ssr
+
+# Local environment/config
 *.local
+.claude/settings.local.json
 
 # Editor directories and files
 .vscode/*
