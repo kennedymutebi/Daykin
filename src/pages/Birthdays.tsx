@@ -8,11 +8,14 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import RefreshIcon      from "@mui/icons-material/Refresh";
 import {
   BirthdayHeroSlider, BirthdayWishBoard, WishInboxModal, RegisterModal,
-  FamousCelebCard, FAMOUS_MATCHES, MONTHS, DAYS, TODAY_BIRTHDAYS,
-  type BirthdayPerson, type WishEntry,
+  FamousCelebCard,
 } from "./BirthdayHero";
+import {
+  FAMOUS_MATCHES, MONTHS, DAYS, TODAY_BIRTHDAYS,
+  type BirthdayPerson, type WishEntry,
+} from "./birthdayData";
 
-import { FONT, SOUL, RADIUS, containerSx, goldButtonSx, selectSx, labelSx, menuPaperSx } from "./soulwishTheme";
+import { FONT, SOUL, containerSx, goldButtonSx, selectSx, labelSx, menuPaperSx } from "./soulwishTheme";
 import { CelebArticleCard } from "../components/shared/CelebArticleCard";
 import { ArticleModal }     from "../components/shared/ArticleModal";
 import { useAudio }         from "../hooks/useAudio";

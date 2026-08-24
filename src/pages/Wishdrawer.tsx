@@ -15,8 +15,8 @@ import CheckCircleIcon  from "@mui/icons-material/CheckCircle";
 import PhoneIcon        from "@mui/icons-material/Phone";
 import MicIcon          from "@mui/icons-material/Mic";
 
-import { FONT, SOUL, RADIUS } from "./soulwishTheme";
-import type { BirthdayPerson, WishEntry } from "./BirthdayHero";
+import { FONT, RADIUS } from "./soulwishTheme";
+import type { BirthdayPerson, WishEntry } from "./birthdayData";
 
 
 // ── Theme tokens for the dark drawer ──────────────────────────────────────

@@ -19,8 +19,8 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import {
   FONT, SOUL, RADIUS, containerSx, goldButtonSx, ghostButtonSx,
 } from "./soulwishTheme";
-import { fadeSlideUp } from "./BirthdayHero";
-import type { BirthdayPerson, WishEntry } from "./BirthdayHero";
+import { fadeSlideUp } from "./birthdayData";
+import type { BirthdayPerson, WishEntry } from "./birthdayData";
 
 // ─────────────────────────────────────────────────────────────────────────
 
