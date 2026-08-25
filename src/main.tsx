@@ -4,12 +4,15 @@ import "./index.css";
 import App from "./App";
 import { AppThemeProvider } from "./context/ThemeContext";
 import { AuthProvider } from "./context/AuthContext";
+import { SubscriptionsProvider } from "./context/SubscriptionsContext"; // ADDED
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AppThemeProvider>
       <AuthProvider>
-        <App />
+        <SubscriptionsProvider>{/* ADDED — must be inside AuthProvider */}
+          <App />
+        </SubscriptionsProvider>{/* ADDED */}
       </AuthProvider>
     </AppThemeProvider>
   </StrictMode>

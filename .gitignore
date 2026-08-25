@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Logs
 logs
 *.log
@@ -16,6 +17,8 @@ dist-ssr
 *.local
 .claude/settings.local.json
 
+=======
+>>>>>>> recovered-birthday-work
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -25,4 +28,13 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
+<<<<<<< HEAD
 *.sw?
+=======
+*.sw?
+
+# Claude local settings
+.claude/
+node_modules/
+dist/
+>>>>>>> recovered-birthday-work

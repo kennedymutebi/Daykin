@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ebiseerabranch]
+    branches: [main]
   pull_request:
-    branches: [ebiseerabranch]
+    branches: [main]
 
 jobs:
   lint-and-build:

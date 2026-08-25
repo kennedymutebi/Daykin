@@ -1,5 +1,5 @@
 // src/components/layout/Navbar.tsx
-import React, { useState,useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   AppBar, Toolbar, Box, Button, Typography, IconButton,
@@ -21,9 +21,9 @@ import logo            from "../../assets/writerlog.jpg";
 import userAvatar      from "../../assets/profilepic.jpg";
 
 
-import { login, register, logout, getMe } from "../../services/auth.service";
-import { ApiError } from "../../services/api.service";
-import type { LoginPayload, RegisterPayload, User } from "../../types/api";
+import { login, register } from "../../services/auth.service";
+import { useAuth } from "../../hooks/useAuth";
+import type { LoginPayload, RegisterPayload } from "../../types/api";
 
 const NAV_LINKS = [
   { label: "Home",         path: "/",             icon: <HomeIcon fontSize="small" />              },
@@ -37,10 +37,11 @@ const Navbar: React.FC = () => {
   const [mobileOpen,      setMobileOpen]      = useState(false);
   const [authOpen,        setAuthOpen]        = useState(false);
   const [authDefaultView, setAuthDefaultView] = useState<"signin" | "signup">("signin");
-  const [currentUser,     setCurrentUser]     = useState<User | null>(null);
   const [authLoading,     setAuthLoading]     = useState(false);
   const [authError,       setAuthError]       = useState<string | null>(null);
   
+
+  const { user, refetch, logout } = useAuth();
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -57,18 +58,7 @@ const Navbar: React.FC = () => {
   const textMuted         = isDark ? "#C8C8D0" : theme.palette.text.secondary;
   const dividerColor      = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)";
   const signinBorderColor = isDark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.2)";
-  useEffect(() => {
-  const initAuth = async () => {
-    try {
-      const me = await getMe();
-      setCurrentUser(me);
-    } catch {
-      setCurrentUser(null);
-    }
-  };
 
-  initAuth();
-}, []);
   const isActive = (path: string) =>
     path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
   
@@ -101,18 +91,14 @@ const Navbar: React.FC = () => {
           password: (data as RegisterPayload).password,
         });
       }
-      const me = await getMe();
-      setCurrentUser(me);
+      await refetch();
       setAuthOpen(false);
       setAuthError(null);
-    } catch (err: unknown) {
+    } catch (err) {
       // FIX: firstError pulls the real Django message e.g.
       // "No active account found with the given credentials."
-      setAuthError(
-        err instanceof ApiError ? err.firstError
-        : err instanceof Error  ? err.message
-        : "Something went wrong. Please try again.",
-      );
+      const apiErr = err as { firstError?: string; message?: string };
+      setAuthError(apiErr.firstError ?? apiErr.message ?? "Something went wrong. Please try again.");
     } finally {
       setAuthLoading(false);
     }
@@ -120,7 +106,6 @@ const Navbar: React.FC = () => {
 
   const handleLogout = () => {
     logout();
-    setCurrentUser(null);
   };
 
   return (
@@ -148,7 +133,7 @@ const Navbar: React.FC = () => {
             sx={{ cursor: "pointer", flexShrink: 0 }}
           >
             <Box
-              component="img" src={logo} alt="Daykin logo"
+              component="img" src={logo} alt="Ebiseera logo"
               sx={{
                 width: { xs: 30, md: 36 }, height: { xs: 30, md: 36 },
                 borderRadius: 1.5, objectFit: "cover",
@@ -162,8 +147,8 @@ const Navbar: React.FC = () => {
                 lineHeight: 1, letterSpacing: "-0.5px",
               }}
             >
-              <Box component="span" sx={{ color: gold }}>Day</Box>
-              <Box component="span" sx={{ color: textPrimary }}>kin</Box>
+              <Box component="span" sx={{ color: gold }}>Ebi</Box>
+              <Box component="span" sx={{ color: textPrimary }}>seera</Box>
             </Typography>
           </Box>
 
@@ -217,7 +202,7 @@ const Navbar: React.FC = () => {
 
             <ThemeToggle />
 
-            {!currentUser && !isMobile && (
+            {!user && !isMobile && (
               <Button
                 variant="outlined" size="small"
                 onClick={() => openAuth("signin")}
@@ -237,7 +222,7 @@ const Navbar: React.FC = () => {
               </Button>
             )}
 
-            {!currentUser && (
+            {!user && (
               <Button
                 variant="contained" size="small"
                 onClick={() => openAuth("signup")}
@@ -258,7 +243,7 @@ const Navbar: React.FC = () => {
                   },
                 }}
               >
-                sign up
+                Join free
               </Button>
             )}
 
@@ -279,19 +264,19 @@ const Navbar: React.FC = () => {
             </IconButton>
 
             <Avatar
-              src={currentUser ? undefined : userAvatar}
-              alt={currentUser ? currentUser.first_name : "User"}
-              onClick={currentUser ? handleLogout : undefined}
+              src={user ? undefined : userAvatar}
+              alt={user ? user.name : "User"}
+              onClick={user ? handleLogout : undefined}
               sx={{
                 width: { xs: 30, md: 36 }, height: { xs: 30, md: 36 },
-                cursor: currentUser ? "pointer" : "default",
+                cursor: user ? "pointer" : "default",
                 border: `2px solid ${gold}`,
                 transition: "transform 0.2s",
                 boxShadow: isDark ? "0 0 0 3px rgba(245,166,35,0.18)" : "none",
                 "&:hover": { transform: "scale(1.08)" },
               }}
             >
-              {currentUser && `${currentUser.first_name?.[0] ?? ""}${currentUser.last_name?.[0] ?? ""}`}
+              {user && user.initials}
             </Avatar>
 
             {isMobile && (
@@ -336,12 +321,12 @@ const Navbar: React.FC = () => {
             sx={{ cursor: "pointer" }}
           >
             <Box
-              component="img" src={logo} alt="Daykin"
+              component="img" src={logo} alt="Ebiseera"
               sx={{ width: 28, height: 28, borderRadius: 1, objectFit: "cover" }}
             />
             <Typography sx={{ fontFamily: theme.typography.fontFamily, fontWeight: 900, fontSize: "1rem" }}>
-              <Box component="span" sx={{ color: gold }}>Day</Box>
-              <Box component="span" sx={{ color: textPrimary }}>kin</Box>
+              <Box component="span" sx={{ color: gold }}>Ebi</Box>
+              <Box component="span" sx={{ color: textPrimary }}>seera</Box>
             </Typography>
           </Box>
           <IconButton
@@ -357,27 +342,27 @@ const Navbar: React.FC = () => {
         {/* User row */}
         <Box display="flex" alignItems="center" gap={1.5} px={2.5} py={2}>
           <Avatar
-            src={currentUser ? undefined : userAvatar}
+            src={user ? undefined : userAvatar}
             sx={{
               width: 42, height: 42,
               border: `2px solid ${gold}`,
               boxShadow: isDark ? "0 0 0 3px rgba(245,166,35,0.18)" : "none",
             }}
           >
-            {currentUser && `${currentUser.first_name?.[0] ?? ""}${currentUser.last_name?.[0] ?? ""}`}
+            {user && user.initials}
           </Avatar>
           <Box>
             <Typography sx={{
               fontFamily: theme.typography.fontFamily,
               fontWeight: 700, fontSize: "0.9rem", color: textPrimary,
             }}>
-              {currentUser ? `${currentUser.first_name} ${currentUser.last_name}` : "Welcome back!"}
+              {user ? user.name : "Welcome back!"}
             </Typography>
             <Typography sx={{
               fontFamily: theme.typography.fontFamily,
               fontSize: "0.72rem", color: textMuted,
             }}>
-              {currentUser ? currentUser.email : "Member since 2024"}
+              {user ? user.email : "Member since 2024"}
             </Typography>
           </Box>
           <Box ml="auto">
@@ -428,7 +413,7 @@ const Navbar: React.FC = () => {
 
         {/* Mobile CTA buttons */}
         <Box px={2.5} display="flex" flexDirection="column" gap={1.5}>
-          {currentUser ? (
+          {user ? (
             <Button
               variant="outlined" fullWidth onClick={handleLogout}
               sx={{

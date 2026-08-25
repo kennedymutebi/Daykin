@@ -1,10 +1,19 @@
-import React from "react";
+import React, { useState } from "react";
 import { useTheme } from "@mui/material/styles";
 import { SERIF } from "./constants";
+import { useAuth } from "../../hooks/useAuth";
+import { useSubscriptions } from "../../context/SubscriptionsContext";
+import { ApiError } from "../../services/api.service";
 import type { Article } from "../../types/article";
 
 type Props = {
-  article: Pick<Article, "author" | "date" | "categoryColor" | "verified" | "creatorImg">;
+  // CHANGED: added authorId (optional so this still compiles even if a
+  // particular Article instance doesn't carry one yet). Ideally add
+  // `authorId?: number;` to the shared Article type in ../../types/article
+  // and drop the intersection below.
+  article: Pick<Article, "author" | "date" | "categoryColor" | "verified" | "creatorImg"> & {
+    authorId?: number;
+  };
 };
 
 export const CreatorHeader: React.FC<Props> = ({ article }) => {
@@ -12,6 +21,39 @@ export const CreatorHeader: React.FC<Props> = ({ article }) => {
   const accent = article.categoryColor ?? theme.palette.primary.main;
 
   const { name, initials, verified: authorVerified, avatarUrl } = article.author;
+
+  const { user } = useAuth();
+  const { isSubscribed, toggleSubscribe } = useSubscriptions();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const authorId = article.authorId;
+  const isOwnPost = authorId !== undefined && user?.id !== undefined
+    && Number(user.id) === Number(authorId);
+
+  // Can't subscribe to yourself, and need to know who the author actually is
+  const showButton = authorId !== undefined && !isOwnPost;
+  const subscribed = authorId !== undefined && isSubscribed(authorId);
+
+  const handleClick = async () => {
+    if (!user) {
+      setMsg("Please log in to subscribe.");
+      return;
+    }
+    if (authorId === undefined || busy) return;
+
+    setBusy(true);
+    setMsg(null);
+    try {
+      await toggleSubscribe(authorId);
+    } catch (err: unknown) {
+      // toggleSubscribe already reverts the optimistic state on failure;
+      // surface a clear message instead of failing silently.
+      setMsg(err instanceof ApiError ? err.firstError : "Could not update subscription. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div style={{
@@ -61,20 +103,43 @@ export const CreatorHeader: React.FC<Props> = ({ article }) => {
         </div>
       </div>
 
-      <button
-        style={{
-          fontFamily: SERIF, fontSize: "0.78rem", fontWeight: 700,
-          color: accent, background: "transparent",
-          border: `1px solid ${accent}`,
-          padding: "0.28rem 0.75rem", borderRadius: 2,
-          cursor: "pointer", whiteSpace: "nowrap",
-          transition: "background 0.15s",
-        }}
-        onMouseEnter={e => (e.currentTarget.style.background = accent + "22")}
-        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-      >
-        Subscribe
-      </button>
+      {/* CHANGED: real Subscribe/Unsubscribe toggle instead of static markup.
+          Filled style when subscribed, outline when not — same accent color
+          scheme as before, just reflecting real state now. */}
+      {showButton && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.25rem" }}>
+          <button
+            onClick={handleClick}
+            disabled={busy}
+            style={{
+              fontFamily: SERIF, fontSize: "0.78rem", fontWeight: 700,
+              color: subscribed ? "#fff" : accent,
+              background: subscribed ? accent : "transparent",
+              border: `1px solid ${accent}`,
+              padding: "0.28rem 0.75rem", borderRadius: 2,
+              cursor: busy ? "default" : "pointer", whiteSpace: "nowrap",
+              opacity: busy ? 0.7 : 1,
+              transition: "background 0.15s, color 0.15s, opacity 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              if (!subscribed) e.currentTarget.style.background = accent + "22";
+            }}
+            onMouseLeave={(e) => {
+              if (!subscribed) e.currentTarget.style.background = "transparent";
+            }}
+          >
+            {subscribed ? "Unsubscribe" : "Subscribe"}
+          </button>
+          {msg && (
+            <span style={{
+              fontFamily: SERIF, fontSize: "0.68rem",
+              color: theme.palette.error.main, maxWidth: 180, textAlign: "right",
+            }}>
+              {msg}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 };

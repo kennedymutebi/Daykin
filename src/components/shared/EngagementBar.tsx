@@ -1,7 +1,8 @@
 // src/components/shared/EngagementBar.tsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTheme } from "@mui/material/styles";
 import { SERIF } from "./constants";
+import { useAuth } from "../../hooks/useAuth";
 import type { Engagement } from "../../types/article";
 
 interface Props {
@@ -24,10 +25,16 @@ export const EngagementBar: React.FC<Props> = ({
   isSubscribed = false,
 }) => {
   const theme = useTheme();
+  const { user } = useAuth();
 
   const [liked,      setLiked]      = useState(false);
   const [shared,     setShared]     = useState(false);
   const [subscribed, setSubscribed] = useState(isSubscribed);
+  const [authMsg,    setAuthMsg]    = useState<string | null>(null);
+
+  // Keep the local subscribed flag in sync when the prop changes (e.g. the
+  // SubscriptionsContext finishes loading, or the user subscribes elsewhere).
+  useEffect(() => { setSubscribed(isSubscribed); }, [isSubscribed]);
 
   const idle = theme.palette.text.secondary;
 
@@ -39,9 +46,11 @@ export const EngagementBar: React.FC<Props> = ({
   };
 
   const handleLike = () => {
-    const nowLiked = !liked;
-    setLiked(nowLiked);
-    if (nowLiked) onLike?.();
+    if (!user) { setAuthMsg("Please log in to like this article."); return; }
+    setAuthMsg(null);
+    // Toggle both ways — the parent derives like vs. unlike from its own state
+    setLiked((l) => !l);
+    onLike?.();
   };
 
   const handleShare = () => {
@@ -51,8 +60,9 @@ export const EngagementBar: React.FC<Props> = ({
   };
 
   const handleSubscribe = () => {
-    const nowSub = !subscribed;
-    setSubscribed(nowSub);
+    if (!user) { setAuthMsg("Please log in to subscribe."); return; }
+    setAuthMsg(null);
+    setSubscribed((s) => !s);
     onSubscribe?.();
   };
 
@@ -124,6 +134,19 @@ export const EngagementBar: React.FC<Props> = ({
             <line x1="12" y1="2" x2="12" y2="15" />
           </svg>
         </button>
+      )}
+
+      {/* Auth-required feedback (e.g. guest tapped Like / Subscribe) */}
+      {authMsg && (
+        <span style={{
+          flexBasis: "100%",
+          color: theme.palette.error.main,
+          fontFamily: SERIF,
+          fontSize: "0.75rem",
+          marginTop: "0.4rem",
+        }}>
+          {authMsg}
+        </span>
       )}
     </div>
   );

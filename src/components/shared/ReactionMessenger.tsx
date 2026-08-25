@@ -8,6 +8,8 @@ import ChatBubbleOutlineIcon     from "@mui/icons-material/ChatBubbleOutline";
 import CloseIcon                 from "@mui/icons-material/Close";
 import SendIcon                  from "@mui/icons-material/Send";
 import EmojiEmotionsOutlinedIcon from "@mui/icons-material/EmojiEmotionsOutlined";
+import { useAuth }               from "../../hooks/useAuth";
+import { ApiError }              from "../../services/api.service";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export interface Comment {
@@ -67,6 +69,7 @@ export const ReactionMessenger: React.FC<ReactionMessengerProps> = ({
 }) => {
   const theme  = useTheme();
   const isDark = theme.palette.mode === "dark";
+  const { user } = useAuth();
 
   const [open,       setOpen]       = useState(false);
   const [comments,   setComments]   = useState<Comment[]>([]);
@@ -129,6 +132,12 @@ export const ReactionMessenger: React.FC<ReactionMessengerProps> = ({
     const trimmed = text.trim();
     if (!trimmed || sending) return;
 
+    // Auth guard — guests can't comment; tell them why before optimistic add
+    if (!user) {
+      setSendError("Please log in to comment.");
+      return;
+    }
+
     setSendError(null);
     setSending(true);
 
@@ -147,15 +156,22 @@ export const ReactionMessenger: React.FC<ReactionMessengerProps> = ({
 
     try {
       await onCommentSubmit?.(postId, trimmed);
-    } catch {
+    } catch (err: unknown) {
       // Revert optimistic comment and restore text so user can retry
       setComments(prev => prev.filter(c => c.id !== tempId));
       setText(trimmed);
-      setSendError("Failed to post. Try again.");
+      const isAuthError = err instanceof ApiError && (err.status === 401 || err.status === 403);
+      setSendError(
+        isAuthError
+          ? "Please log in to comment."
+          : err instanceof ApiError
+            ? err.firstError
+            : "Failed to post. Try again.",
+      );
     } finally {
       setSending(false);
     }
-  }, [text, sending, currentUser, postId, onCommentSubmit]);
+  }, [text, sending, user, currentUser, postId, onCommentSubmit]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }

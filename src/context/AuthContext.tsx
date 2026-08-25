@@ -1,9 +1,18 @@
 // src/context/AuthContext.tsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { getMe, logout as logoutService } from "../services/auth.service";
 import { tokenStorage } from "../services/api.service";
-import { AuthContext, type AuthUser } from "./auth.context";
 import type { User } from "../types/api";
+
+export interface AuthUser {
+  id: number;
+  name: string;
+  initials: string;
+  username: string;
+  email: string;
+  avatarSrc?: string;
+  color?: string;
+}
 
 function toAuthUser(u: User): AuthUser {
   const full = [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username;
@@ -14,6 +23,15 @@ function toAuthUser(u: User): AuthUser {
       : full.slice(0, 2).toUpperCase();
   return { id: u.id, name: full, initials, username: u.username, email: u.email };
 }
+
+interface AuthContextValue {
+  user: AuthUser | null;
+  loading: boolean;
+  refetch: () => Promise<void>;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user,    setUser]    = useState<AuthUser | null>(null);
@@ -52,3 +70,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     </AuthContext.Provider>
   );
 };
+
+// eslint-disable-next-line react-refresh/only-export-components -- context hook intentionally co-located with its provider; Fast Refresh DX only
+export function useAuthContext(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuthContext must be used inside <AuthProvider>");
+  return ctx;
+}

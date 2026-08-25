@@ -1,8 +1,20 @@
-import React, { useState, useMemo } from "react";
+import React, { createContext, useContext, useState, useMemo } from "react";
 import { ThemeProvider as MuiThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import { darkTheme, lightTheme } from "../theme/theme";
-import { ThemeContext } from "./theme.context";
+
+interface ThemeContextValue {
+  isDark: boolean;
+  toggle: () => void;
+}
+
+const ThemeContext = createContext<ThemeContextValue>({
+  isDark: true,
+  toggle: () => {},
+});
+
+// eslint-disable-next-line react-refresh/only-export-components -- context hook intentionally co-located with its provider; Fast Refresh DX only
+export const useThemeMode = () => useContext(ThemeContext);
 
 export const AppThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isDark, setIsDark] = useState(true);

@@ -12,8 +12,11 @@ import RefreshIcon             from "@mui/icons-material/Refresh";
 import EditOutlinedIcon        from "@mui/icons-material/EditOutlined";
 import CloseIcon               from "@mui/icons-material/Close";
 
-import PostComposer, { MediumReactionBar } from "../components/shared/PostComposer";
-import { isStoryLiked, setStoryLiked } from "../utils/storyStorage";
+import PostComposer, {
+  MediumReactionBar,
+  isStoryLiked,
+  setStoryLiked,
+} from "../components/shared/PostComposer";
 import type { Comment } from "../components/shared/ReactionMessenger";
 import ArticleSearchBar  from "../components/shared/ArticleSearchBar";
 import { AudioControls } from "../components/shared/AudioControls";
@@ -182,8 +185,9 @@ const ArticleCard: React.FC<{
 
   // ── FIX: author check uses id when available, falls back to name
   // We also watch currentUser reactively so no refresh is needed after login
-  const isAuthor = currentUser.id !== undefined && article.authorId !== undefined
-    ? Number(currentUser.id) === Number(article.authorId)
+  const articleAuthorId = (article as { authorId?: number }).authorId;
+  const isAuthor = currentUser.id !== undefined && articleAuthorId !== undefined
+    ? Number(currentUser.id) === Number(articleAuthorId)
     : currentUser.name !== "Guest" && currentUser.name === article.author.name;
 
   const storyId = article.apiId ?? article.id;
@@ -272,7 +276,7 @@ const ArticleCard: React.FC<{
         {/* Avatar */}
         <Avatar sx={{
           width: 24, height: 24,
-          bgcolor: article.author.color ?? ACCENT,
+          bgcolor: (article.author as { color?: string }).color ?? ACCENT,
           fontFamily: SERIF, fontSize: "0.55rem", fontWeight: 700,
           flexShrink: 0,
         }}>
@@ -356,9 +360,8 @@ export default function LoveStoriesPage() {
   const audio = useAudio();
   const { user: authUser } = useAuth();
 
-  // ── FIX: memoise composerUser on authUser so the edit icon reacts immediately
-  // after login without needing a page refresh, and the ref effect below only
-  // re-runs when the user actually changes.
+  // ── FIX: rebuild composerUser only when the user changes so the edit icon
+  // reacts immediately after login without needing a page refresh
   const composerUser = useMemo(
     () =>
       authUser
@@ -410,6 +413,14 @@ export default function LoveStoriesPage() {
   // ── Create ─────────────────────────────────────────────────────────────────
   const handlePost = useCallback(async (data: { title: string; text: string; mediaFiles?: File[] }) => {
     if (!data.title.trim() && !data.text.trim() && (!data.mediaFiles || data.mediaFiles.length === 0)) return;
+
+    // Auth guard — stop guests before the request so they get a clear message
+    // instead of a raw "not authenticated" error on submit.
+    if (!authUser) {
+      setPostError("Please sign in to write an article.");
+      return;
+    }
+
     setPosting(true);
     setPostError(null);
     try {
@@ -421,13 +432,18 @@ export default function LoveStoriesPage() {
       });
       await fetchStories();
     } catch (err: unknown) {
-      setPostError(err instanceof ApiError
-        ? err.firstError
-        : "Failed to post article. Make sure you are logged in.");
+      const isAuthError = err instanceof ApiError && (err.status === 401 || err.status === 403);
+      setPostError(
+        isAuthError
+          ? "Your session has expired. Please sign in again to share your story."
+          : err instanceof ApiError
+            ? err.firstError
+            : "Failed to post article. Please try again.",
+      );
     } finally {
       setPosting(false);
     }
-  }, [fetchStories]);
+  }, [authUser, fetchStories]);
 
   // ── Edit / save ────────────────────────────────────────────────────────────
   const handleEditPost = useCallback(async (data: { title: string; text: string; mediaFiles?: File[] }) => {
@@ -480,8 +496,7 @@ export default function LoveStoriesPage() {
   setStoryLiked(apiId, !alreadyLiked);
 
   try {
-    const res = await likeLoveStory(apiId);  
-    console.log("LIKE RESPONSE:", res);   // ← now use it
+    const res = await likeLoveStory(apiId);
     const serverLikes = res.likes;              // adjust field name to match your CountResponse
 
     const reconcile = (a: Article) =>

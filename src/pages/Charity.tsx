@@ -480,9 +480,7 @@ export default function CharityPage() {
   const accent     = theme.palette.primary.main;
   const accentText = theme.palette.primary.contrastText;
 
-  // NOTE: the "read" flow only records the selected cause — no reader modal is
-  // rendered from it yet, so the value itself is intentionally not read.
-  const [, setActiveCause]              = useState<CharityCase | null>(null);
+  const [, setActiveCause]  = useState<CharityCase | null>(null);
   const [donateCause,  setDonateCause]  = useState<CharityCase | null>(null);
   const [activeFilter, setActiveFilter] = useState("All");
   const [searchQuery,  setSearchQuery]  = useState("");
