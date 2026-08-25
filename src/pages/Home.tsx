@@ -245,17 +245,18 @@ const ArticleCardSkeleton: React.FC = () => {
 const ArticleCard: React.FC<{
   article: Article;
   apiId: number;
+  source: FeedSource; // which backend this item came from — namespaces per-device like state
   canEdit: boolean; // CHANGED: only true for love_story-sourced items with an update endpoint
   onOpen: (a: Article) => void;
   audio: ReturnType<typeof useAudio>;
-  onLike: (apiId: number) => Promise<void>;
+  onLike: (apiId: number) => Promise<void | { likes?: number; liked?: boolean }>;
   onShare: (apiId: number) => Promise<void>;
   onCommentSubmit: (apiId: number, text: string) => Promise<Comment>;
   onFetchComments: (apiId: number) => Promise<Comment[]>;
   onEdit: () => void;
   currentUser: { name: string; initials: string; avatarColor?: string; id?: number };
 }> = ({
-  article, apiId, canEdit, onOpen, audio,
+  article, apiId, source, canEdit, onOpen, audio,
   onLike, onShare, onCommentSubmit, onFetchComments,
   onEdit, currentUser,
 }) => {
@@ -368,10 +369,11 @@ const ArticleCard: React.FC<{
           comments, exactly like the compose page — not just story-sourced items */}
       <MediumReactionBar
         storyId={apiId}
+        source={source}
         likes={article.engagement.likes}
         comments={article.engagement.comments}
         shares={article.engagement.shares}
-        liked={isStoryLiked(apiId)}
+        liked={isStoryLiked(apiId, source)}
         accentColor={accent}
         currentUser={currentUser}
         onLike={onLike}
@@ -869,15 +871,16 @@ export default function AeonFeed() {
 
   // ── Like ───────────────────────────────────────────────────────────────────
   // The reaction bar owns the optimistic heart + count flip and the per-device
-  // localStorage state. Here we only call the toggle endpoint and reconcile the
-  // shared count to the server's authoritative value. Errors propagate so the
-  // bar rolls back its own optimistic update.
+  // localStorage state. Here we call the toggle endpoint, reconcile the shared
+  // count into the feed, and RETURN the server's authoritative values so the
+  // bar can apply them deterministically (instead of racing a prop update).
   const handleLike = useCallback(async (apiId: number, source: FeedSource) => {
     const res = source === "love_story"
       ? await likeLoveStory(apiId)
       : await likeArticle(apiId);
     if (typeof res?.likes !== "number") return;
     const likes = res.likes;
+    const liked = (res as { liked?: boolean }).liked;
 
     const setCount = (item: FeedItem) =>
       item.source === source && item.apiId === apiId
@@ -890,6 +893,8 @@ export default function AeonFeed() {
         ? { ...prev, article: { ...prev.article, engagement: { ...prev.article.engagement, likes } } }
         : prev,
     );
+
+    return { likes, liked };
   }, []);
 
   // ── Share (optimistic update, routed by source) ───────────────────────────
@@ -1059,6 +1064,7 @@ export default function AeonFeed() {
               key={`${item.source}-${item.apiId}`}
               article={item.article}
               apiId={item.apiId}
+              source={item.source}
               canEdit={item.source === "love_story"}
               onOpen={() => setActiveItem(item)}
               audio={audio}
@@ -1106,6 +1112,7 @@ export default function AeonFeed() {
           article={activeArticle}
           onClose={() => setActiveItem(null)}
           audio={audio}
+          source={activeItem.source}
           onLike={() => handleLike(activeItem.apiId, activeItem.source)}
           onShare={() => handleShare(activeItem.apiId, activeItem.source)}
         />

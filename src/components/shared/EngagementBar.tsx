@@ -1,17 +1,18 @@
 // src/components/shared/EngagementBar.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useTheme } from "@mui/material/styles";
 import { SERIF } from "./constants";
 import { useAuth } from "../../hooks/useAuth";
-import { isStoryLiked, setStoryLiked } from "../../utils/storyStorage";
+import { isStoryLiked, setStoryLiked, type LikeSource } from "../../utils/storyStorage";
 import type { Engagement } from "../../types/article";
 
 interface Props {
   engagement: Engagement;
   color: string;
   storyId?: number;                    // per-device like-persistence key
+  source?: LikeSource;                 // namespaces the per-device like state
   initialLiked?: boolean;              // seed the filled heart from the caller
-  onLike?: () => void | Promise<void>;
+  onLike?: () => void | Promise<void | { likes?: number; liked?: boolean }>;
   onShare?: () => void;
   onComment?: () => void;      // ← ADDED
   onSubscribe?: () => void;
@@ -22,6 +23,7 @@ export const EngagementBar: React.FC<Props> = ({
   engagement,
   color,
   storyId,
+  source = "love_story",
   initialLiked = false,
   onLike,
   onShare,
@@ -35,16 +37,23 @@ export const EngagementBar: React.FC<Props> = ({
   // The filled heart is per-device (localStorage); the count is the shared,
   // server-authoritative value the parent keeps in `engagement.likes`.
   const [liked,      setLiked]      = useState<boolean>(
-    () => initialLiked || (storyId !== undefined && isStoryLiked(storyId)),
+    () => initialLiked || (storyId !== undefined && isStoryLiked(storyId, source)),
   );
   const [localLikes, setLocalLikes] = useState<number>(engagement.likes ?? 0);
   const [shared,     setShared]     = useState(false);
   const [subscribed, setSubscribed] = useState(isSubscribed);
   const [authMsg,    setAuthMsg]    = useState<string | null>(null);
 
+  // While a like is in flight, don't let a parent refresh (poll / reopen)
+  // overwrite the optimistic count with a stale value.
+  const likePending = useRef(false);
+
   // Keep the count in sync with parent refreshes (reconcile after a like,
   // background polling, reopening the modal) without clobbering local liked state.
-  useEffect(() => { setLocalLikes(engagement.likes ?? 0); }, [engagement.likes]);
+  useEffect(() => {
+    if (likePending.current) return;
+    setLocalLikes(engagement.likes ?? 0);
+  }, [engagement.likes]);
 
   // Keep the local subscribed flag in sync when the prop changes (e.g. the
   // SubscriptionsContext finishes loading, or the user subscribes elsewhere).
@@ -60,23 +69,31 @@ export const EngagementBar: React.FC<Props> = ({
   };
 
   const handleLike = async () => {
+    if (likePending.current) return;
     if (!user) { setAuthMsg("Please log in to like this article."); return; }
     setAuthMsg(null);
 
-    const wasLiked = liked;
-    // Optimistic, per-device flip. The endpoint is a per-user toggle, so the
-    // same call likes or unlikes; the parent reconciles `engagement.likes` to
-    // the server value (which flows back in via the useEffect above).
-    setLiked(!wasLiked);
-    setLocalLikes((n) => Math.max(0, n + (wasLiked ? -1 : 1)));
-    if (storyId !== undefined) setStoryLiked(storyId, !wasLiked);
+    const next = !liked;
+    // Optimistic, per-device flip. The filled heart is the user's own marker
+    // and stays lit as proof; the count reconciles to the server value below
+    // (and via the parent refresh flowing in through the useEffect above).
+    setLiked(next);
+    setLocalLikes((n) => Math.max(0, n + (next ? 1 : -1)));
+    if (storyId !== undefined) setStoryLiked(storyId, next, source);
 
+    likePending.current = true;
     try {
-      await onLike?.();
+      const res = await onLike?.();
+      if (res && typeof res.likes === "number") setLocalLikes(res.likes);
+      if (res && typeof res.liked === "boolean") {
+        setLiked(res.liked);
+        if (storyId !== undefined) setStoryLiked(storyId, res.liked, source);
+      }
     } catch {
-      setLiked(wasLiked);
-      setLocalLikes((n) => Math.max(0, n + (wasLiked ? 1 : -1)));
-      if (storyId !== undefined) setStoryLiked(storyId, wasLiked);
+      // Keep the heart lit as the user's local proof; the parent refresh
+      // reconciles the shared count from the server.
+    } finally {
+      likePending.current = false;
     }
   };
 

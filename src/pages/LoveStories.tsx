@@ -14,9 +14,8 @@ import CloseIcon               from "@mui/icons-material/Close";
 
 import PostComposer, {
   MediumReactionBar,
-  isStoryLiked,
-  setStoryLiked,
 } from "../components/shared/PostComposer";
+import { isStoryLiked, setStoryLiked } from "../utils/storyStorage";
 import type { Comment } from "../components/shared/ReactionMessenger";
 import ArticleSearchBar  from "../components/shared/ArticleSearchBar";
 import { AudioControls } from "../components/shared/AudioControls";
@@ -335,10 +334,11 @@ const ArticleCard: React.FC<{
         <Box sx={{ ml: "auto" }}>
           <MediumReactionBar
             storyId={storyId}
+            source="love_story"
             likes={article.engagement.likes}
             comments={article.engagement.comments}
             shares={article.engagement.shares}
-            liked={isStoryLiked(storyId)}
+            liked={isStoryLiked(storyId, "love_story")}
             accentColor={ACCENT}
             currentUser={currentUser}
             onLike={onLike}
@@ -513,9 +513,9 @@ export default function LoveStoriesPage() {
   // ── Like ───────────────────────────────────────────────────────────────────
   // The reaction bar (MediumReactionBar in the feed, EngagementBar in the modal)
   // owns the optimistic heart + count flip and the per-device localStorage state.
-  // Here we only hit the toggle endpoint and reconcile the *shared* count to the
-  // server's authoritative value. Errors are intentionally left to propagate so
-  // the bar rolls back its own optimistic update.
+  // Here we hit the toggle endpoint, reconcile the *shared* count into state, and
+  // RETURN the server's authoritative { likes, liked } so the bar applies them
+  // deterministically instead of racing a prop update.
   const handleLike = useCallback(async (apiId: number) => {
     const res = await likeLoveStory(apiId);          // { liked, likes } — per-user toggle
     if (typeof res?.likes !== "number") return;
@@ -525,6 +525,7 @@ export default function LoveStoriesPage() {
         : a;
     setArticles(p => p.map(reconcile));
     setActiveArticle(p => (p && (p.apiId ?? p.id) === apiId ? reconcile(p) : p));
+    return { likes: res.likes, liked: res.liked };
   }, []);
 
   // ── Share (optimistic) ─────────────────────────────────────────────────────
@@ -1048,6 +1049,7 @@ export default function LoveStoriesPage() {
           article={activeArticle}
           onClose={() => setActiveArticle(null)}
           audio={audio}
+          source="love_story"
           onLike={handleLike}
           onShare={handleShare}
         />

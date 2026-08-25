@@ -21,6 +21,16 @@ import { ReactionMessenger } from "./ReactionMessenger";
 import type { Comment }      from "./ReactionMessenger";
 import { useAuth }           from "../../hooks/useAuth";
 import { ApiError }          from "../../services/api.service";
+import {
+  isStoryLiked, setStoryLiked,
+  isStoryBookmarked, setStoryBookmarked,
+  isStorySharedLocal, setStorySharedLocal,
+  type LikeSource,
+} from "../../utils/storyStorage";
+
+/** What a parent's onLike/onUnlike may return so the bar can show the
+ *  server-authoritative values instead of trusting its optimistic guess. */
+export interface LikeResult { likes?: number; liked?: boolean }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -41,14 +51,16 @@ export interface PostData {
 
 export interface ReactionBarProps {
   storyId:           number;
+  /** Which backend this id belongs to — namespaces the per-device like/bookmark state */
+  source?:           LikeSource;
   likes:             number;
   comments:          number;
   shares:            number;
   /** Pass true when the current user has already liked this story (from API) */
   liked?:            boolean;
   bookmarked?:       boolean;
-  onLike?:           (id: number) => Promise<void>;
-  onUnlike?:         (id: number) => Promise<void>;
+  onLike?:           (id: number) => Promise<LikeResult | void>;
+  onUnlike?:         (id: number) => Promise<LikeResult | void>;
   onComment?:        (id: number) => void;
   onShare?:          (id: number) => Promise<void>;
   onBookmark?:       (id: number) => void;
@@ -82,91 +94,8 @@ export interface PostComposerProps {
 // ─────────────────────────────────────────────────────────────────────────────
 const SERIF = "'Playfair Display', Georgia, serif";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// localStorage helpers — track which story IDs the current user has liked
-// ─────────────────────────────────────────────────────────────────────────────
-
-const LIKED_KEY = "daykin_liked_stories";
-
-function getLikedSet(): Set<number> {
-  try {
-    const raw = localStorage.getItem(LIKED_KEY);
-    const arr: number[] = raw ? JSON.parse(raw) : [];
-    return new Set(arr);
-  } catch {
-    return new Set();
-  }
-}
-
-function persistLikedSet(set: Set<number>) {
-  try {
-    localStorage.setItem(LIKED_KEY, JSON.stringify([...set]));
-  } catch { /* quota exceeded — ignore */ }
-}
-
-// eslint-disable-next-line react-refresh/only-export-components -- localStorage helper intentionally co-located; Fast Refresh DX only
-export function isStoryLiked(id: number): boolean {
-  return getLikedSet().has(id);
-}
-
-// eslint-disable-next-line react-refresh/only-export-components -- localStorage helper intentionally co-located; Fast Refresh DX only
-export function setStoryLiked(id: number, liked: boolean) {
-  const set = getLikedSet();
-  if (liked) set.add(id); else set.delete(id);
-  persistLikedSet(set);
-}
-
-// localStorage helpers — bookmarks
-const BOOKMARKED_KEY = "daykin_bookmarked_stories";
-
-function getBookmarkedSet(): Set<number> {
-  try {
-    const raw = localStorage.getItem(BOOKMARKED_KEY);
-    const arr: number[] = raw ? JSON.parse(raw) : [];
-    return new Set(arr);
-  } catch {
-    return new Set();
-  }
-}
-
-// eslint-disable-next-line react-refresh/only-export-components -- localStorage helper intentionally co-located; Fast Refresh DX only
-export function isStoryBookmarked(id: number): boolean {
-  return getBookmarkedSet().has(id);
-}
-
-function setStoryBookmarked(id: number, bookmarked: boolean) {
-  const set = getBookmarkedSet();
-  if (bookmarked) set.add(id); else set.delete(id);
-  try {
-    localStorage.setItem(BOOKMARKED_KEY, JSON.stringify([...set]));
-  } catch { /* ignore */ }
-}
-
-// localStorage helpers — shares (dedupe so a story's share count only bumps
-// once per client; repeat clicks still re-share the link but don't inflate the count)
-const SHARED_KEY = "daykin_shared_stories";
-
-function getSharedSet(): Set<number> {
-  try {
-    const raw = localStorage.getItem(SHARED_KEY);
-    const arr: number[] = raw ? JSON.parse(raw) : [];
-    return new Set(arr);
-  } catch {
-    return new Set();
-  }
-}
-
-function isStorySharedLocal(id: number): boolean {
-  return getSharedSet().has(id);
-}
-
-function setStorySharedLocal(id: number, shared: boolean) {
-  const set = getSharedSet();
-  if (shared) set.add(id); else set.delete(id);
-  try {
-    localStorage.setItem(SHARED_KEY, JSON.stringify([...set]));
-  } catch { /* ignore */ }
-}
+// like / bookmark / share persistence lives in ../../utils/storyStorage
+// (source-namespaced so article #5 and love-story #5 never collide).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MediumReactionBar
@@ -174,6 +103,7 @@ function setStorySharedLocal(id: number, shared: boolean) {
 
 export const MediumReactionBar: React.FC<ReactionBarProps> = ({
   storyId,
+  source           = "love_story",
   likes            = 0,
   comments         = 0,
   shares           = 0,
@@ -195,24 +125,30 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
   // Auth-required message shown when a guest tries to like
   const [authMsg, setAuthMsg] = useState<string | null>(null);
 
-  // Initialise from localStorage (client-side persistence)
-  const [localLiked,      setLocalLiked]      = useState(() => liked || isStoryLiked(storyId));
-  const [localBookmarked, setLocalBookmarked] = useState(() => bookmarked || isStoryBookmarked(storyId));
-  const [likeLoading,     setLikeLoading]     = useState(false);
+  // Initialise from localStorage (per-device, per-source persistence)
+  const [localLiked,      setLocalLiked]      = useState(() => liked || isStoryLiked(storyId, source));
+  const [localBookmarked, setLocalBookmarked] = useState(() => bookmarked || isStoryBookmarked(storyId, source));
   const [shareLoading,    setShareLoading]    = useState(false);
   const [bounce,          setBounce]          = useState(false);
   const [copied,          setCopied]          = useState(false);
+
+  // While a like/unlike is in flight, a background poll must NOT overwrite the
+  // optimistic count with a stale server list — this ref gates the sync effect.
+  const likePending = useRef(false);
 
   // Keep counts in sync with parent refreshes (don't override local liked state)
   const [localLikes,  setLocalLikes]  = useState(likes ?? 0);
   const [localShares, setLocalShares] = useState(shares ?? 0);
 
-  useEffect(() => { setLocalLikes(likes ?? 0);   }, [likes]);
+  useEffect(() => {
+    if (likePending.current) return;   // an in-flight like owns the count until the server answers
+    setLocalLikes(likes ?? 0);
+  }, [likes]);
   useEffect(() => { setLocalShares(shares ?? 0); }, [shares]);
 
   // ── Like / Unlike toggle ───────────────────────────────────────────────────
   const handleLike = useCallback(async () => {
-    if (likeLoading) return;
+    if (likePending.current) return;   // ignore rapid re-taps while a toggle is in flight
 
     // Auth guard — guests can't like; tell them why instead of silently failing
     if (!user) {
@@ -220,32 +156,39 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
       return;
     }
 
-    const wasLiked = localLiked;
-    setLocalLiked(!wasLiked);
-    setLocalLikes(prev => Math.max(0, prev + (wasLiked ? -1 : 1)));
-    setStoryLiked(storyId, !wasLiked);
+    const next = !localLiked;
+
+    // Optimistic + instant, no spinner. The filled heart is the user's OWN
+    // marker: it lights immediately and stays lit (persisted per-device) as
+    // proof of their tap. The number is the shared total and reconciles to the
+    // server's authoritative value below / via the background poll.
+    setLocalLiked(next);
+    setLocalLikes(prev => Math.max(0, prev + (next ? 1 : -1)));
+    setStoryLiked(storyId, next, source);
     setBounce(true);
     setTimeout(() => setBounce(false), 400);
 
-    setLikeLoading(true);
+    likePending.current = true;
     try {
-      // The like endpoint is a per-user toggle — calling it again unlikes.
-      // Use an explicit onUnlike if the parent supplies one, otherwise toggle
-      // back through onLike so the unlike actually reaches the server (parents
-      // currently only pass onLike, which is why unlikes never persisted).
-      if (wasLiked) {
-        await (onUnlike ?? onLike)?.(storyId);
-      } else {
-        await onLike?.(storyId);
+      // The endpoint is a per-user toggle. Prefer an explicit onUnlike if the
+      // parent supplies one, else toggle back through onLike.
+      const res = next
+        ? await onLike?.(storyId)
+        : await (onUnlike ?? onLike)?.(storyId);
+
+      // Trust the server when it tells us the real totals / state.
+      if (res && typeof res.likes === "number") setLocalLikes(res.likes);
+      if (res && typeof res.liked === "boolean") {
+        setLocalLiked(res.liked);
+        setStoryLiked(storyId, res.liked, source);
       }
     } catch {
-      setLocalLiked(wasLiked);
-      setLocalLikes(prev => Math.max(0, prev + (wasLiked ? 1 : -1)));
-      setStoryLiked(storyId, wasLiked);
+      // Keep the heart lit — it's the user's local proof they tapped. The
+      // periodic feed refresh reconciles the shared count from the server.
     } finally {
-      setLikeLoading(false);
+      likePending.current = false;
     }
-  }, [likeLoading, user, localLiked, onLike, onUnlike, storyId]);
+  }, [user, localLiked, onLike, onUnlike, storyId, source]);
 
   // ── Share ──────────────────────────────────────────────────────────────────
   const handleShare = useCallback(async () => {
@@ -266,26 +209,26 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
 
     // Dedupe — only bump the share count once per story per client so repeat
     // clicks can't inflate the counter.
-    if (isStorySharedLocal(storyId)) return;
+    if (isStorySharedLocal(storyId, source)) return;
 
     setLocalShares(prev => prev + 1);
-    setStorySharedLocal(storyId, true);
+    setStorySharedLocal(storyId, true, source);
     setShareLoading(true);
     try {
       await onShare?.(storyId);
     } catch {
       setLocalShares(prev => Math.max(0, prev - 1));
-      setStorySharedLocal(storyId, false);
+      setStorySharedLocal(storyId, false, source);
     } finally {
       setShareLoading(false);
     }
-  }, [shareLoading, onShare, storyId]);
+  }, [shareLoading, onShare, storyId, source]);
 
   // ── Bookmark (local only) ──────────────────────────────────────────────────
   const handleBookmark = () => {
     const next = !localBookmarked;
     setLocalBookmarked(next);
-    setStoryBookmarked(storyId, next);
+    setStoryBookmarked(storyId, next, source);
     onBookmark?.(storyId);
   };
 
@@ -338,11 +281,11 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
               transition: "transform 0.25s cubic-bezier(0.34,1.56,0.64,1)",
               display:    "flex",
             }}>
-              {likeLoading
-                ? <CircularProgress size={16} sx={{ color: "inherit" }} />
-                : localLiked
-                  ? <FavoriteIcon       sx={{ fontSize: 19 }} />
-                  : <FavoriteBorderIcon sx={{ fontSize: 19 }} />
+              {/* No spinner — the heart fills instantly and stays lit as the
+                  user's own proof; the count reconciles from the server. */}
+              {localLiked
+                ? <FavoriteIcon       sx={{ fontSize: 19 }} />
+                : <FavoriteBorderIcon sx={{ fontSize: 19 }} />
               }
             </Box>
             <Typography sx={countStyle}>

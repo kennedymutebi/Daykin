@@ -6,16 +6,18 @@ import { EngagementBar } from "./EngagementBar";
 import { PlayIcon, PauseIcon } from "./AudioControls";
 import type { Article } from "../../types/article";
 import type { AudioState } from "../../hooks/useAudio";
+import type { LikeSource } from "../../utils/storyStorage";
 
 interface Props {
   article: Article;
   onClose: () => void;
   audio: AudioState;
-  onLike?: (apiId: number) => void | Promise<void>;    // ← NEW
+  source?: LikeSource;                                                        // ← NEW
+  onLike?: (apiId: number) => void | Promise<void | { likes?: number; liked?: boolean }>;    // ← NEW
   onShare?: (apiId: number) => void | Promise<void>;   // ← NEW
 }
 
-export const ArticleModal: React.FC<Props> = ({ article, onClose, audio, onLike, onShare }) => {
+export const ArticleModal: React.FC<Props> = ({ article, onClose, audio, source, onLike, onShare }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
   const isPlaying  = audio.articleId === article.id && audio.playing;
 
@@ -172,6 +174,7 @@ export const ArticleModal: React.FC<Props> = ({ article, onClose, audio, onLike,
         <div style={{ maxWidth: 640 }}>
           <EngagementBar
             storyId={article.apiId ?? article.id}
+            source={source}
             engagement={article.engagement}
             color={article.categoryColor ?? "#F59E0B"}
             onLike={onLike  ? () => onLike(article.apiId  ?? article.id) : undefined}
