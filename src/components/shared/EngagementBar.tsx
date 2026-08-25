@@ -3,12 +3,15 @@ import React, { useState, useEffect } from "react";
 import { useTheme } from "@mui/material/styles";
 import { SERIF } from "./constants";
 import { useAuth } from "../../hooks/useAuth";
+import { isStoryLiked, setStoryLiked } from "../../utils/storyStorage";
 import type { Engagement } from "../../types/article";
 
 interface Props {
   engagement: Engagement;
   color: string;
-  onLike?: () => void;
+  storyId?: number;                    // per-device like-persistence key
+  initialLiked?: boolean;              // seed the filled heart from the caller
+  onLike?: () => void | Promise<void>;
   onShare?: () => void;
   onComment?: () => void;      // ← ADDED
   onSubscribe?: () => void;
@@ -18,6 +21,8 @@ interface Props {
 export const EngagementBar: React.FC<Props> = ({
   engagement,
   color,
+  storyId,
+  initialLiked = false,
   onLike,
   onShare,
   onComment,                   // ← ADDED
@@ -27,10 +32,19 @@ export const EngagementBar: React.FC<Props> = ({
   const theme = useTheme();
   const { user } = useAuth();
 
-  const [liked,      setLiked]      = useState(false);
+  // The filled heart is per-device (localStorage); the count is the shared,
+  // server-authoritative value the parent keeps in `engagement.likes`.
+  const [liked,      setLiked]      = useState<boolean>(
+    () => initialLiked || (storyId !== undefined && isStoryLiked(storyId)),
+  );
+  const [localLikes, setLocalLikes] = useState<number>(engagement.likes ?? 0);
   const [shared,     setShared]     = useState(false);
   const [subscribed, setSubscribed] = useState(isSubscribed);
   const [authMsg,    setAuthMsg]    = useState<string | null>(null);
+
+  // Keep the count in sync with parent refreshes (reconcile after a like,
+  // background polling, reopening the modal) without clobbering local liked state.
+  useEffect(() => { setLocalLikes(engagement.likes ?? 0); }, [engagement.likes]);
 
   // Keep the local subscribed flag in sync when the prop changes (e.g. the
   // SubscriptionsContext finishes loading, or the user subscribes elsewhere).
@@ -45,12 +59,25 @@ export const EngagementBar: React.FC<Props> = ({
     transition: "color 0.15s",
   };
 
-  const handleLike = () => {
+  const handleLike = async () => {
     if (!user) { setAuthMsg("Please log in to like this article."); return; }
     setAuthMsg(null);
-    // Toggle both ways — the parent derives like vs. unlike from its own state
-    setLiked((l) => !l);
-    onLike?.();
+
+    const wasLiked = liked;
+    // Optimistic, per-device flip. The endpoint is a per-user toggle, so the
+    // same call likes or unlikes; the parent reconciles `engagement.likes` to
+    // the server value (which flows back in via the useEffect above).
+    setLiked(!wasLiked);
+    setLocalLikes((n) => Math.max(0, n + (wasLiked ? -1 : 1)));
+    if (storyId !== undefined) setStoryLiked(storyId, !wasLiked);
+
+    try {
+      await onLike?.();
+    } catch {
+      setLiked(wasLiked);
+      setLocalLikes((n) => Math.max(0, n + (wasLiked ? 1 : -1)));
+      if (storyId !== undefined) setStoryLiked(storyId, wasLiked);
+    }
   };
 
   const handleShare = () => {
@@ -79,7 +106,7 @@ export const EngagementBar: React.FC<Props> = ({
           stroke={liked ? color : "currentColor"} strokeWidth="1.8">
           <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
         </svg>
-        {engagement.likes + (liked ? 1 : 0)}
+        {localLikes}
       </button>
 
       {/* Comment — NOW WIRED UP */}

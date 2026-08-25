@@ -598,9 +598,16 @@ export default function AeonFeed() {
   const [editError, setEditError]     = useState<string | null>(null);
 
   // ── Fetch + merge both sources ────────────────────────────────────────────
-  const fetchFeed = useCallback(async () => {
-    setFeedLoading(true);
-    setFeedError(null);
+  // `silent` = background poll: no skeleton, no error banner, and a total
+  // failure leaves the current feed untouched instead of blanking it.
+  const fetchFeed = useCallback(async (silentArg?: boolean) => {
+    // Only an explicit `true` (from the poller) is silent — retry buttons pass
+    // a MouseEvent, which must still show the skeleton.
+    const silent = silentArg === true;
+    if (!silent) {
+      setFeedLoading(true);
+      setFeedError(null);
+    }
     try {
       const [articlesRes, loveStoriesRes] = await Promise.allSettled([
         getArticles({ ordering: "-created_at" }),
@@ -621,9 +628,16 @@ export default function AeonFeed() {
         }
       }
 
-      if (articlesRes.status === "rejected" && loveStoriesRes.status === "rejected") {
-        const err = articlesRes.reason;
-        setFeedError(err instanceof ApiError ? err.firstError : "Failed to load articles.");
+      const bothFailed =
+        articlesRes.status === "rejected" && loveStoriesRes.status === "rejected";
+
+      // On a silent poll, never wipe the feed or surface an error — just skip.
+      if (bothFailed) {
+        if (!silent) {
+          const err = articlesRes.reason;
+          setFeedError(err instanceof ApiError ? err.firstError : "Failed to load articles.");
+        }
+        return;
       }
 
       items.sort(
@@ -632,14 +646,41 @@ export default function AeonFeed() {
 
       setFeed(items);
     } catch (err: unknown) {
-      const msg = err instanceof ApiError ? err.firstError : "Failed to load articles.";
-      setFeedError(msg);
+      if (!silent) {
+        const msg = err instanceof ApiError ? err.firstError : "Failed to load articles.";
+        setFeedError(msg);
+      }
     } finally {
-      setFeedLoading(false);
+      if (!silent) setFeedLoading(false);
     }
   }, [gold]);
 
   useEffect(() => { fetchFeed(); }, [fetchFeed]);
+
+  // ── Real-time counts via polling ──────────────────────────────────────────
+  // Refetch every 7s while the tab is visible so like/share/comment counts
+  // stay in sync across devices. Silent: no skeleton, no error banner.
+  useEffect(() => {
+    const POLL_MS = 7000;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const start = () => {
+      if (timer) return;
+      timer = setInterval(() => {
+        if (document.visibilityState === "visible") fetchFeed(true);
+      }, POLL_MS);
+    };
+    const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") { fetchFeed(true); start(); }
+      else stop();
+    };
+
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [fetchFeed]);
 
   // ── Fetch birthdays ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -669,8 +710,32 @@ export default function AeonFeed() {
 
   const visibleFeed = filteredFeed.slice(0, visibleCount);
   const hasMore = visibleCount < filteredFeed.length;
+  const remaining = filteredFeed.length - visibleCount;
 
-  const handleLoadMore = () => setVisibleCount((c) => c + PAGE_SIZE);
+  // ── Infinite scroll ────────────────────────────────────────────────────────
+  // CHANGED: the "Load more" button is gone. A shimmer sentinel at the bottom
+  // of the list is watched by an IntersectionObserver; when it scrolls into
+  // view we reveal the next PAGE_SIZE items. rootMargin pre-loads slightly
+  // before the sentinel is on-screen so the shimmer is replaced seamlessly.
+  const loadMoreRef = React.useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMore || feedLoading) return;
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((c) => c + PAGE_SIZE);
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, feedLoading, visibleCount, filteredFeed.length]);
 
   // ── Composer: post a new article from Home ────────────────────────────────
   // CHANGED: 401/403 (missing or expired token) now gets a clean, specific
@@ -802,27 +867,29 @@ export default function AeonFeed() {
     return mapped;
   }, [gold]);
 
-  // ── Like (optimistic update, routed by source) ────────────────────────────
+  // ── Like ───────────────────────────────────────────────────────────────────
+  // The reaction bar owns the optimistic heart + count flip and the per-device
+  // localStorage state. Here we only call the toggle endpoint and reconcile the
+  // shared count to the server's authoritative value. Errors propagate so the
+  // bar rolls back its own optimistic update.
   const handleLike = useCallback(async (apiId: number, source: FeedSource) => {
-    const alreadyLiked = isStoryLiked(apiId);
-    const delta = alreadyLiked ? -1 : 1;
+    const res = source === "love_story"
+      ? await likeLoveStory(apiId)
+      : await likeArticle(apiId);
+    if (typeof res?.likes !== "number") return;
+    const likes = res.likes;
 
-    const adjust = (d: number) => (item: FeedItem) =>
+    const setCount = (item: FeedItem) =>
       item.source === source && item.apiId === apiId
-        ? { ...item, article: { ...item.article, engagement: { ...item.article.engagement, likes: Math.max(0, item.article.engagement.likes + d) } } }
+        ? { ...item, article: { ...item.article, engagement: { ...item.article.engagement, likes } } }
         : item;
 
-    setFeed((prev) => prev.map(adjust(delta)));
-
-    try {
-      if (source === "love_story") {
-        await likeLoveStory(apiId);
-      } else {
-        await likeArticle(apiId);
-      }
-    } catch {
-      setFeed((prev) => prev.map(adjust(-delta)));
-    }
+    setFeed((prev) => prev.map(setCount));
+    setActiveItem((prev) =>
+      prev && prev.source === source && prev.apiId === apiId
+        ? { ...prev, article: { ...prev.article, engagement: { ...prev.article.engagement, likes } } }
+        : prev,
+    );
   }, []);
 
   // ── Share (optimistic update, routed by source) ───────────────────────────
@@ -966,7 +1033,7 @@ export default function AeonFeed() {
             severity="error"
             sx={{ mb: 3 }}
             action={
-              <Button size="small" startIcon={<RefreshIcon />} onClick={fetchFeed}>
+              <Button size="small" startIcon={<RefreshIcon />} onClick={() => fetchFeed()}>
                 Retry
               </Button>
             }
@@ -1013,21 +1080,24 @@ export default function AeonFeed() {
           </Box>
         )}
 
+        {/* CHANGED: infinite scroll — this shimmer sentinel replaces the old
+            "Load more" button. When it scrolls into view the IntersectionObserver
+            reveals the next batch; the skeletons below double as the loading
+            indicator until the real cards render in their place. */}
         {hasMore && !feedLoading && (
-          <Box display="flex" justifyContent="center" mt={2} pb={4}>
-            <Button
-              variant="outlined"
-              onClick={handleLoadMore}
-              sx={{
-                fontWeight: 700, px: 4,
-                borderColor: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)",
-                color: theme.palette.text.secondary,
-                "&:hover": { borderColor: gold, color: gold },
-              }}
-            >
-              Load more
-            </Button>
-          </Box>
+          <div
+            ref={loadMoreRef}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+              gap: "2rem",
+              paddingBottom: "2rem",
+            }}
+          >
+            {Array.from({ length: Math.min(PAGE_SIZE, remaining) }).map((_, i) => (
+              <ArticleCardSkeleton key={`more-${i}`} />
+            ))}
+          </div>
         )}
       </Box>
 

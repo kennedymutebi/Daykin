@@ -11,8 +11,8 @@ interface Props {
   article: Article;
   onClose: () => void;
   audio: AudioState;
-  onLike?: (apiId: number) => void;    // ← NEW
-  onShare?: (apiId: number) => void;   // ← NEW
+  onLike?: (apiId: number) => void | Promise<void>;    // ← NEW
+  onShare?: (apiId: number) => void | Promise<void>;   // ← NEW
 }
 
 export const ArticleModal: React.FC<Props> = ({ article, onClose, audio, onLike, onShare }) => {
@@ -171,6 +171,7 @@ export const ArticleModal: React.FC<Props> = ({ article, onClose, audio, onLike,
         {/* FIX: wire up like/share callbacks */}
         <div style={{ maxWidth: 640 }}>
           <EngagementBar
+            storyId={article.apiId ?? article.id}
             engagement={article.engagement}
             color={article.categoryColor ?? "#F59E0B"}
             onLike={onLike  ? () => onLike(article.apiId  ?? article.id) : undefined}

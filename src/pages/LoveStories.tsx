@@ -395,20 +395,51 @@ export default function LoveStoriesPage() {
   const [editError,      setEditError]      = useState<string | null>(null);
 
   // ── Fetch stories ──────────────────────────────────────────────────────────
-  const fetchStories = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchStories = useCallback(async (silentArg?: boolean) => {
+    // Only an explicit `true` (from the poller) is silent — the retry button
+    // passes a MouseEvent, which must still show the skeleton.
+    const silent = silentArg === true;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await getLoveStories({ ordering: "-created_at" });
       setArticles(res.results.map(mapLoveStory));
     } catch (err: unknown) {
-      setError(err instanceof ApiError ? err.firstError : "Failed to load articles.");
+      if (!silent) setError(err instanceof ApiError ? err.firstError : "Failed to load articles.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => { fetchStories(); }, [fetchStories]);
+
+  // ── Real-time counts via polling ──────────────────────────────────────────
+  // Refetch every 7s while the tab is visible so like/share/comment counts stay
+  // in sync across devices. Silent: no skeleton, no error banner, and a failure
+  // leaves the current list untouched.
+  useEffect(() => {
+    const POLL_MS = 7000;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const start = () => {
+      if (timer) return;
+      timer = setInterval(() => {
+        if (document.visibilityState === "visible") fetchStories(true);
+      }, POLL_MS);
+    };
+    const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") { fetchStories(true); start(); }
+      else stop();
+    };
+
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [fetchStories]);
 
   // ── Create ─────────────────────────────────────────────────────────────────
   const handlePost = useCallback(async (data: { title: string; text: string; mediaFiles?: File[] }) => {
@@ -479,43 +510,22 @@ export default function LoveStoriesPage() {
   setActiveArticle(prev => prev && (prev.apiId ?? prev.id) === id ? null : prev);
   setEditingArticle(null);
 }, [editingArticle]);
-  // ── Like (optimistic + persisted) ─────────────────────────────────────────
+  // ── Like ───────────────────────────────────────────────────────────────────
+  // The reaction bar (MediumReactionBar in the feed, EngagementBar in the modal)
+  // owns the optimistic heart + count flip and the per-device localStorage state.
+  // Here we only hit the toggle endpoint and reconcile the *shared* count to the
+  // server's authoritative value. Errors are intentionally left to propagate so
+  // the bar rolls back its own optimistic update.
   const handleLike = useCallback(async (apiId: number) => {
-  const alreadyLiked = isStoryLiked(apiId);
-  const delta = alreadyLiked ? -1 : 1;
-
-  const adjust = (a: Article) => {
-    if ((a.apiId ?? a.id) !== apiId) return a;
-    const newCount = Math.max(0, a.engagement.likes + delta);
-    return { ...a, engagement: { ...a.engagement, likes: newCount } };
-  };
-
-  // optimistic update, no localStorage write for the count
-  setArticles(p => p.map(adjust));
-  setActiveArticle(p => p && (p.apiId ?? p.id) === apiId ? adjust(p) : p);
-  setStoryLiked(apiId, !alreadyLiked);
-
-  try {
-    const res = await likeLoveStory(apiId);
-    const serverLikes = res.likes;              // adjust field name to match your CountResponse
-
+    const res = await likeLoveStory(apiId);          // { liked, likes } — per-user toggle
+    if (typeof res?.likes !== "number") return;
     const reconcile = (a: Article) =>
       (a.apiId ?? a.id) === apiId
-        ? { ...a, engagement: { ...a.engagement, likes: serverLikes } }
+        ? { ...a, engagement: { ...a.engagement, likes: res.likes } }
         : a;
-
     setArticles(p => p.map(reconcile));
-    setActiveArticle(p => p && (p.apiId ?? p.id) === apiId ? reconcile(p) : p);
-  } catch {
-    const revert = (a: Article) =>
-      (a.apiId ?? a.id) === apiId
-        ? { ...a, engagement: { ...a.engagement, likes: Math.max(0, a.engagement.likes - delta) } }
-        : a;
-    setArticles(p => p.map(revert));
-    setActiveArticle(p => p && (p.apiId ?? p.id) === apiId ? revert(p) : p);
-    setStoryLiked(apiId, alreadyLiked);
-  }
-}, []);
+    setActiveArticle(p => (p && (p.apiId ?? p.id) === apiId ? reconcile(p) : p));
+  }, []);
 
   // ── Share (optimistic) ─────────────────────────────────────────────────────
   const handleShare = useCallback(async (apiId: number) => {

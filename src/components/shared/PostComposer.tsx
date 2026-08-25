@@ -229,8 +229,12 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
 
     setLikeLoading(true);
     try {
+      // The like endpoint is a per-user toggle — calling it again unlikes.
+      // Use an explicit onUnlike if the parent supplies one, otherwise toggle
+      // back through onLike so the unlike actually reaches the server (parents
+      // currently only pass onLike, which is why unlikes never persisted).
       if (wasLiked) {
-        await onUnlike?.(storyId);
+        await (onUnlike ?? onLike)?.(storyId);
       } else {
         await onLike?.(storyId);
       }
