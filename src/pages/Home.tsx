@@ -43,6 +43,7 @@ import { isStoryLiked } from "../utils/storyStorage";
 import type { Comment } from "../components/shared/ReactionMessenger";
 import { useAudio } from "../hooks/useAudio";
 import { useAuth } from "../hooks/useAuth";
+import { useStats } from "../hooks/useStats";
 
 // ── API services ──────────────────────────────────────────────────────────────
 import {
@@ -68,11 +69,12 @@ import type {
   Article as ApiArticle,
   Celebrity,
   LoveStory as ApiLoveStory,
+  SiteStats,
+  OnlinePresence,
 } from "../types/api";
 
 // ── Local Article type used by existing components ────────────────────────────
 import type { Article } from "../types/article";
-import type { Writer } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -177,23 +179,23 @@ function mapLoveStoryToArticle(s: ApiLoveStory, accent: string): Article {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Static writers for hero avatar strip
+// Hero helpers — live stats & online presence
 // ─────────────────────────────────────────────────────────────────────────────
 
-const WRITERS: Writer[] = [
-  { id: "1", name: "James Osei",     initials: "JO", role: "Staff Writer",        followers: "3.2k", color: "#E53935", verified: true },
-  { id: "2", name: "Amara Diallo",   initials: "AD", role: "Community Writer",    followers: "1.8k", color: "#F5A623" },
-  { id: "3", name: "Sofia Mensah",   initials: "SM", role: "Writer",              followers: "2.5k", color: "#F5A623" },
-  { id: "4", name: "Kwame Asante",   initials: "KA", role: "Sports Contributor",  followers: "4.1k", color: "#43A047" },
-  { id: "5", name: "Fatima Al-Said", initials: "FA", role: "Community Writer",    followers: "1.2k", color: "#1565C0" },
-  { id: "6", name: "David Nkrumah",  initials: "DN", role: "Sports Writer",       followers: "5.7k", color: "#7C3AED", verified: true },
+// The backend only sends id/name/initials for online users, so we pick a
+// stable accent color per user id for the hero avatar strip.
+const ONLINE_AVATAR_COLORS = [
+  "#E53935", "#F5A623", "#43A047", "#1565C0", "#7C3AED", "#00897B", "#D81B60",
 ];
 
-const STATS = [
-  { value: "24k+",   label: "Members" },
-  { value: "8,400+", label: "Stories Published" },
-  { value: "4",      label: "Content Sections" },
-];
+// 24000 → "24K", 8400 → "8.4K", 1_200_000 → "1.2M" — locale-aware compact form.
+const compactNumber = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+function formatCompact(n: number): string {
+  return compactNumber.format(n);
+}
 
 // CHANGED: content isn't categorized anymore — everyone posts the same way,
 // so instead of category tabs we offer simple sorting, same options as the
@@ -433,7 +435,12 @@ const BirthdayStrip: React.FC<{ celebrities: Celebrity[] }> = ({ celebrities }) 
 // Hero (unchanged — always dark)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Hero: React.FC<{ onShareStory: () => void }> = ({ onShareStory }) => {
+const Hero: React.FC<{
+  onShareStory: () => void;
+  stats: SiteStats | null;
+  online: OnlinePresence | null;
+  storiesCount: number | null;
+}> = ({ onShareStory, stats, online, storiesCount }) => {
   const theme = useTheme();
   const gold  = theme.palette.gold?.main ?? "#F5A623";
 
@@ -441,6 +448,28 @@ const Hero: React.FC<{ onShareStory: () => void }> = ({ onShareStory }) => {
   const HERO_TEXT    = "#F5F5F7";
   const HERO_MUTED   = "rgba(245,245,247,0.55)";
   const HERO_DIVIDER = "rgba(255,255,255,0.12)";
+
+  // Live hero numbers. Each is rendered only when we actually have a value —
+  // Stories Published works immediately off the feed count, while Members and
+  // Visits appear once the backend /api/stats/ endpoint ships. No fake numbers,
+  // no placeholders: a stat with no data is simply hidden.
+  const heroStats: { value: string; label: string }[] = [];
+  if (stats?.members != null) {
+    heroStats.push({ value: formatCompact(stats.members), label: "Members" });
+  }
+  const stories = storiesCount ?? stats?.stories_published ?? null;
+  if (stories != null) {
+    heroStats.push({ value: formatCompact(stories), label: "Stories Published" });
+  }
+  if (stats?.total_visits != null) {
+    heroStats.push({ value: formatCompact(stats.total_visits), label: "Visits" });
+  }
+
+  // Online presence strip. Hidden entirely until the presence endpoint returns
+  // at least one online visitor.
+  const onlineUsers = online?.users ?? [];
+  const onlineCount = online?.count ?? 0;
+  const showOnline  = onlineCount > 0;
 
   return (
     <Box sx={{
@@ -501,37 +530,63 @@ const Hero: React.FC<{ onShareStory: () => void }> = ({ onShareStory }) => {
           }}>Write an Article</Button>
         </Stack>
 
-        <Stack direction="row" spacing={{ xs: 2, sm: 4 }} justifyContent="center"
-          mt={{ xs: 4, md: 6 }} flexWrap="wrap" gap={2}
-          divider={<Divider orientation="vertical" flexItem sx={{ borderColor: HERO_DIVIDER }} />}>
-          {STATS.map(s => (
-            <Box key={s.label} textAlign="center">
-              <Typography sx={{
-                fontFamily: theme.typography.fontFamily, fontWeight: 800,
-                fontSize: { xs: "1.2rem", sm: "1.4rem", md: "1.7rem", lg: "2rem" }, color: HERO_TEXT,
-              }}>{s.value}</Typography>
+        {heroStats.length > 0 && (
+          <Stack direction="row" spacing={{ xs: 2, sm: 4 }} justifyContent="center"
+            mt={{ xs: 4, md: 6 }} flexWrap="wrap" gap={2}
+            divider={<Divider orientation="vertical" flexItem sx={{ borderColor: HERO_DIVIDER }} />}>
+            {heroStats.map(s => (
+              <Box key={s.label} textAlign="center">
+                <Typography sx={{
+                  fontFamily: theme.typography.fontFamily, fontWeight: 800,
+                  fontSize: { xs: "1.2rem", sm: "1.4rem", md: "1.7rem", lg: "2rem" }, color: HERO_TEXT,
+                }}>{s.value}</Typography>
+                <Typography variant="caption" sx={{ fontFamily: theme.typography.fontFamily, color: HERO_MUTED }}>
+                  {s.label}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        )}
+
+        {/* Online-now strip — replaces the old static "writers" avatars. Shows
+            real people currently in the app (logged-in users as avatars, plus a
+            total count that includes guests). Hidden until presence data loads. */}
+        {showOnline && (
+          <Box mt={{ xs: 3, md: 4 }} display="flex" justifyContent="center" alignItems="center" gap={1.5} flexWrap="wrap">
+            {onlineUsers.length > 0 && (
+              <AvatarGroup max={5} sx={{ "& .MuiAvatar-root": {
+                width: { xs: 28, sm: 32, md: 38 }, height: { xs: 28, sm: 32, md: 38 },
+                fontSize: { xs: "0.6rem", md: "0.72rem" }, border: `2px solid ${HERO_BG}`,
+              }}}>
+                {onlineUsers.map(u => (
+                  <Avatar
+                    key={u.id}
+                    sx={{ bgcolor: ONLINE_AVATAR_COLORS[u.id % ONLINE_AVATAR_COLORS.length], fontFamily: theme.typography.fontFamily }}
+                  >
+                    {u.initials}
+                  </Avatar>
+                ))}
+              </AvatarGroup>
+            )}
+            <Box display="flex" alignItems="center" gap={0.75}>
+              <Box
+                component="span"
+                sx={{
+                  width: 8, height: 8, borderRadius: "50%", bgcolor: "#43A047",
+                  animation: "onlinePulse 2s infinite",
+                  "@keyframes onlinePulse": {
+                    "0%":   { boxShadow: "0 0 0 0 rgba(67,160,71,0.6)" },
+                    "70%":  { boxShadow: "0 0 0 6px rgba(67,160,71,0)" },
+                    "100%": { boxShadow: "0 0 0 0 rgba(67,160,71,0)" },
+                  },
+                }}
+              />
               <Typography variant="caption" sx={{ fontFamily: theme.typography.fontFamily, color: HERO_MUTED }}>
-                {s.label}
+                {formatCompact(onlineCount)} online now
               </Typography>
             </Box>
-          ))}
-        </Stack>
-
-        <Box mt={{ xs: 3, md: 4 }} display="flex" justifyContent="center" alignItems="center" gap={1.5}>
-          <AvatarGroup max={5} sx={{ "& .MuiAvatar-root": {
-            width: { xs: 28, sm: 32, md: 38 }, height: { xs: 28, sm: 32, md: 38 },
-            fontSize: { xs: "0.6rem", md: "0.72rem" }, border: `2px solid ${HERO_BG}`,
-          }}}>
-            {WRITERS.map(w => (
-              <Avatar key={w.id} sx={{ bgcolor: w.color, fontFamily: theme.typography.fontFamily }}>
-                {w.initials}
-              </Avatar>
-            ))}
-          </AvatarGroup>
-          <Typography variant="caption" sx={{ fontFamily: theme.typography.fontFamily, color: HERO_MUTED }}>
-            Join 12,000+ writers
-          </Typography>
-        </Box>
+          </Box>
+        )}
       </Box>
     </Box>
   );
@@ -549,6 +604,9 @@ export default function AeonFeed() {
   const gold   = theme.palette.gold?.main ?? "#F5A623";
   const audio  = useAudio();
   const { user: authUser } = useAuth();
+  const { stats, online } = useStats();
+
+const [storiesCount, setStoriesCount] = useState<number | null>(null);
 
   // CHANGED: composer/reaction accent is gold everywhere on Home — purple is
   // reserved for the profile/subscribe UI and never appears here.
@@ -628,6 +686,14 @@ export default function AeonFeed() {
         for (const s of loveStoriesRes.value.results) {
           items.push({ source: "love_story", apiId: s.id, article: mapLoveStoryToArticle(s, gold) });
         }
+      }
+      // Total published count across both sources (uses the paginator's `count`,
+// not just the current page's `results.length`), silently skipped on a
+// failed source rather than blanking the number.
+      const articlesTotal   = articlesRes.status === "fulfilled" ? articlesRes.value.count : 0;
+      const loveStoriesTotal = loveStoriesRes.status === "fulfilled" ? loveStoriesRes.value.count : 0;
+      if (articlesRes.status === "fulfilled" || loveStoriesRes.status === "fulfilled") {
+        setStoriesCount(articlesTotal + loveStoriesTotal);
       }
 
       const bothFailed =
@@ -919,7 +985,12 @@ export default function AeonFeed() {
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <Box sx={{ backgroundColor: theme.palette.background.default, minHeight: "100vh" }}>
-      <Hero onShareStory={handleShareStoryClick} />
+      <Hero
+      onShareStory={handleShareStoryClick}
+      stats={stats}
+      online={online}
+      storiesCount={storiesCount}
+    />
 
       <Box sx={{
         backgroundColor: theme.palette.background.default,

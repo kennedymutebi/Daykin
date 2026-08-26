@@ -212,3 +212,35 @@ export interface LoveStoryFilters {
 }
 // ── Love Story Comment ─────────────────────────────────────────────────────────
 
+// ── Site stats & presence ───────────────────────────────────────────────────────
+// Backend endpoints these mirror (not built yet — see stats.service.ts):
+//   GET  /api/stats/            → SiteStats
+//   GET  /api/presence/online/  → OnlinePresence
+//   POST /api/presence/ping/    → PresencePing
+
+/** GET /api/stats/ — live numbers for the home hero. */
+export interface SiteStats {
+  members: number;
+  stories_published: number;
+  total_visits: number;
+  online_now: number;
+}
+
+/** A logged-in user currently online, for the hero avatar strip. */
+export interface OnlineUser {
+  id: number;
+  name: string;
+  initials: string;
+}
+
+/** GET /api/presence/online/ — total online count (incl. guests) + named users. */
+export interface OnlinePresence {
+  count: number;
+  users: OnlineUser[];
+}
+
+/** POST /api/presence/ping/ response. */
+export interface PresencePing {
+  online_now: number;
+}
+

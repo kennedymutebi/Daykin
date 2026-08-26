@@ -11,3 +11,4 @@ export * from "./articles.service";
 export * from "./celebrities.service";
 export * from "./loveStories.service";
 export * from "./charities.service";
+export * from "./stats.service";
