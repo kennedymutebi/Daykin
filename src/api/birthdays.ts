@@ -52,10 +52,21 @@ export interface ListCelebrantsOptions {
 
 export async function listCelebrants(opts?: ListCelebrantsOptions): Promise<CelebrantDTO[]> {
   const qs = opts?.mine ? "?mine=true" : "";
-  const data = await api.get<PaginatedResponse<CelebrantDTO> | CelebrantDTO[]>(`/birthdays/${qs}`);
-  // Handles both paginated (default DRF) and non-paginated responses,
-  // so this keeps working even if pagination settings change later.
-  return Array.isArray(data) ? data : data.results;
+  let url: string | null = `/birthdays/${qs}`;
+  const all: CelebrantDTO[] = [];
+
+  while (url) {
+    const data: PaginatedResponse<CelebrantDTO> | CelebrantDTO[] = await api.get(url);
+
+    if (Array.isArray(data)) {
+      return data;
+    }
+
+    all.push(...data.results);
+    url = data.next ? data.next.replace(/^https?:\/\/[^/]+\/api/, "") : null;
+  }
+
+  return all;
 }
 
 export function getCelebrant(id: number): Promise<CelebrantDTO> {
