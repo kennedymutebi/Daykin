@@ -9,7 +9,7 @@
 // slice is left untouched — last-known value is preserved across refreshes, and
 // stays `null` until the endpoint ever succeeds. The hero hides whatever's null.
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { getStats, getOnline } from "../services/stats.service";
 import type { SiteStats, OnlinePresence } from "../types/api";
 
@@ -19,23 +19,36 @@ export function useStats(): { stats: SiteStats | null; online: OnlinePresence | 
   const [stats,  setStats]  = useState<SiteStats | null>(null);
   const [online, setOnline] = useState<OnlinePresence | null>(null);
 
+  // Guards against setState firing after the hook has unmounted (e.g. the
+  // user navigates away while a fetch from refresh() is still in flight).
+  // Set to true in the effect's cleanup below.
+  const unmountedRef = useRef(false);
+
   const refresh = useCallback(async () => {
     try {
       const s = await getStats();
-      if (s && typeof s === "object") setStats(s);
+      if (!unmountedRef.current && s && typeof s === "object") setStats(s);
     } catch {
       /* /api/stats/ missing — keep last-known value */
     }
 
     try {
       const o = await getOnline();
-      if (o && typeof o === "object" && Array.isArray(o.users)) setOnline(o);
+      if (!unmountedRef.current && o && typeof o === "object" && Array.isArray(o.users)) {
+        setOnline(o);
+      }
     } catch {
       /* /api/presence/online/ missing — keep last-known value */
     }
   }, []);
 
   useEffect(() => {
+    unmountedRef.current = false;
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refresh() is
+    // async; its setState calls happen after `await getStats()`/`await getOnline()`,
+    // not synchronously during this effect's execution. This is the standard
+    // fetch-on-mount-and-poll pattern.
     refresh();
     let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -56,6 +69,7 @@ export function useStats(): { stats: SiteStats | null; online: OnlinePresence | 
     start();
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      unmountedRef.current = true;
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
