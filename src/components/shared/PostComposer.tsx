@@ -10,7 +10,6 @@ import VideocamOutlinedIcon from "@mui/icons-material/VideocamOutlined";
 import CloseIcon            from "@mui/icons-material/Close";
 import DeleteOutlineIcon    from "@mui/icons-material/DeleteOutline";
 import SwapHorizIcon        from "@mui/icons-material/SwapHoriz";
-import CheckIcon            from "@mui/icons-material/Check";
 import FavoriteBorderIcon   from "@mui/icons-material/FavoriteBorder";
 import FavoriteIcon         from "@mui/icons-material/Favorite";
 import BookmarkBorderIcon   from "@mui/icons-material/BookmarkBorder";
@@ -130,7 +129,6 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
   const [localBookmarked, setLocalBookmarked] = useState(() => bookmarked || isStoryBookmarked(storyId, source));
   const [shareLoading,    setShareLoading]    = useState(false);
   const [bounce,          setBounce]          = useState(false);
-  const [copied,          setCopied]          = useState(false);
 
   // While a like/unlike is in flight, a background poll must NOT overwrite the
   // optimistic count with a stale server list — this ref gates the sync effect.
@@ -191,21 +189,16 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
   }, [user, localLiked, onLike, onUnlike, storyId, source]);
 
   // ── Share ──────────────────────────────────────────────────────────────────
+  // NOTE: This used to fire its own bare `navigator.share({ title, url })` /
+  // clipboard write BEFORE calling onShare, which is why users saw a plain
+  // "ebiseera.com" native-share sheet flash first, followed a moment later
+  // by the real ShareMenu dialog (image + WhatsApp/Twitter/Facebook). That
+  // direct native-share/clipboard call has been removed — this now only
+  // delegates to the parent's onShare, which opens ShareMenu. ShareMenu
+  // itself is responsible for the native "Share with image" option, copy
+  // link, and the social buttons.
   const handleShare = useCallback(async () => {
     if (shareLoading) return;
-    const url = window.location.href;
-
-    // Always let the user share the link (copy / native sheet), no login needed
-    if (navigator.share) {
-      try { await navigator.share({ title: document.title, url }); }
-      catch { return; }
-    } else {
-      try {
-        await navigator.clipboard.writeText(url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } catch { /* clipboard blocked */ }
-    }
 
     // Dedupe — only bump the share count once per story per client so repeat
     // clicks can't inflate the counter.
@@ -329,14 +322,12 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
           </Box>
         </Tooltip>
 
-        {/* Share */}
-        <Tooltip title={copied ? "Link copied!" : "Share story"} placement="top" arrow>
-          <Box onClick={handleShare} sx={btn(copied, "#10B981")}>
+        {/* Share — delegates straight to parent's ShareMenu via onShare */}
+        <Tooltip title="Share story" placement="top" arrow>
+          <Box onClick={handleShare} sx={btn(false, "#10B981")}>
             {shareLoading
               ? <CircularProgress size={14} sx={{ color: "inherit" }} />
-              : copied
-                ? <CheckIcon         sx={{ fontSize: 17 }} />
-                : <ShareOutlinedIcon sx={{ fontSize: 17 }} />}
+              : <ShareOutlinedIcon sx={{ fontSize: 17 }} />}
            <Typography sx={countStyle}>
              {localShares.toLocaleString()}
            </Typography>
