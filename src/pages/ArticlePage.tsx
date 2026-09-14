@@ -147,6 +147,7 @@ export default function ArticlePage() {
         onClose={() => setShareOpen(false)}
         shareUrl={shareUrl}
         title={article.title}
+        imageUrl={article.img && article.img !== "/placeholder.png" ? article.img : undefined}
         onShared={bumpShareCount}
       />
     </>

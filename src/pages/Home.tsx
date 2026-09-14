@@ -912,7 +912,7 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
       apiId,
       source,
       title: item?.article.title ?? "Check this out",
-      imageUrl: item?.article.img,
+      imageUrl: item?.article.img && item.article.img !== "/placeholder.png" ? item.article.img : undefined,
     });
   }, [feed, activeItem]);
 
