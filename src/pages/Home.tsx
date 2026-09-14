@@ -83,6 +83,7 @@ import type {
 
 // ── Local Article type used by existing components ────────────────────────────
 import type { Article } from "../types/article";
+import { API_BASE_URL } from "../config/api.config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -924,7 +925,7 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
   }, [shareTarget]);
 
   const shareUrl = shareTarget
-    ? `${MEDIA_BASE}/api/article/${shareTarget.source}/${shareTarget.apiId}/`
+    ? `${API_BASE_URL}/article/${shareTarget.source}/${shareTarget.apiId}/`
     : "";
 
   // ─────────────────────────────────────────────────────────────────────────

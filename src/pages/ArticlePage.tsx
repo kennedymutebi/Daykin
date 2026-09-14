@@ -19,6 +19,7 @@ import { getArticle, likeArticle, shareArticle } from "../services";
 import { getLoveStory, likeLoveStory, shareLoveStory } from "../services/loveStories.service";
 import { ApiError } from "../services/api.service";
 import type { Article } from "../types/article";
+import { API_BASE_URL } from "../config/api.config";
 
 type Source = "article" | "love_story";
 
@@ -108,7 +109,7 @@ export default function ArticlePage() {
   }, [validSource, apiId]);
 
   const shareUrl = validSource && !Number.isNaN(apiId)
-    ? `${MEDIA_BASE}/api/article/${validSource}/${apiId}/`
+     ? `${API_BASE_URL}/article/${validSource}/${apiId}/`
     : "";
 
   if (loading) {
