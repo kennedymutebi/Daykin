@@ -17,7 +17,7 @@ import VolunteerActivismIcon from "@mui/icons-material/VolunteerActivism";
 
 import { ThemeToggle } from "../shared/ThemeToggle";
 import { AuthModal }   from "../shared/AuthModal";
-import logo            from "../../assets/writerlog.jpg";
+import logo            from "../../assets/daykin.jpeg";
 import userAvatar      from "../../assets/profilepic.jpg";
 
 
@@ -243,7 +243,7 @@ const Navbar: React.FC = () => {
                   },
                 }}
               >
-                Join free
+                Register
               </Button>
             )}
 
