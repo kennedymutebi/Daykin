@@ -12,6 +12,7 @@ import BirthdayAdd from "./pages/birthday/BirthdayAdd";
 import AIWishPage from "./pages/birthday/AIWishPage";
 import CelebTwinsPage from "./pages/birthday/CelebTwinsPage";
 import WishingWall from "./pages/birthday/WishingWall";
+import ArticlePage from "./pages/ArticlePage";
 
 import Charity from "./pages/Charity";
 import AudioWishPage from "./pages/AudioWishPage";
@@ -37,6 +38,7 @@ const App: React.FC = () => {
            <Route path="/audio-wish"      element={<AudioWishPage />}     />
             <Route path="/love-stories"    element={<LoveStories />}       />
             <Route path="/charity"         element={<Charity />}           />
+            <Route path="/article/:source/:id" element={<ArticlePage />}   />
             <Route path="/birthdays" element={<BirthdayLayout />}>
               <Route index element={<Navigate to="feed" replace />} />
               <Route path="feed" element={<BirthdayFeed />} />

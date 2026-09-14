@@ -21,6 +21,12 @@
 //   error text.
 // • CHANGED: excerpt is no longer clamped to 3 lines on the card — full
 //   excerpt text is shown ("Read More" clipping removed).
+// • CHANGED: share mapping functions moved to utils/mapArticle.ts so
+//   ArticlePage (the shared-link deep-link target) can reuse them.
+// • CHANGED: Share button now opens a real share menu (WhatsApp/X/Facebook/
+//   Telegram/Copy Link) instead of silently bumping the counter with
+//   nowhere for the link to actually go — the count only increments once a
+//   platform is actually chosen.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
@@ -38,12 +44,14 @@ import CloseIcon from "@mui/icons-material/Close";
 import { CreatorHeader } from "../components/shared/CreatorHeader";
 import { AudioControls } from "../components/shared/AudioControls";
 import { ArticleModal } from "../components/shared/ArticleModal";
+import { ShareMenu } from "../components/shared/ShareMenu";
 import PostComposer, { MediumReactionBar } from "../components/shared/PostComposer";
 import { isStoryLiked } from "../utils/storyStorage";
 import type { Comment } from "../components/shared/ReactionMessenger";
 import { useAudio } from "../hooks/useAudio";
 import { useAuth } from "../hooks/useAuth";
 import { useStats } from "../hooks/useStats";
+import { mapApiArticle, mapLoveStoryToArticle, MEDIA_BASE } from "../utils/mapArticle";
 
 // ── API services ──────────────────────────────────────────────────────────────
 import {
@@ -80,10 +88,6 @@ import type { Article } from "../types/article";
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MEDIA_BASE =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace("/api", "") ??
-  "http://localhost:8000";
-
 /**
  * Every merged item remembers where it came from, so like/share/comment
  * actions can be routed to the right backend endpoint. This is purely a
@@ -98,85 +102,6 @@ interface FeedItem {
 }
 
 const SERIF = "'Playfair Display', Georgia, serif";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function resolveImg(img: string | null | undefined): string {
-  if (!img) return "/placeholder.png";
-  if (img.startsWith("http") || img.startsWith("data:")) return img;
-  return `${MEDIA_BASE}${img}`;
-}
-
-/** Map a generic API article → local Article shape expected by existing components */
-function mapApiArticle(a: ApiArticle, accent: string): Article {
-  return {
-    id: a.id,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    authorId: (a.author as any)?.id,
-    title: a.title,
-    excerpt: a.excerpt,
-    content: a.content,
-    category: "Article",
-    categoryColor: accent, // CHANGED: single accent, no per-category coloring
-    img: resolveImg(a.image),
-    audio: a.audio ?? undefined,
-    readTime: `${Math.ceil(a.content.split(" ").length / 200)} min read`,
-    createdAt: a.created_at,
-    date: new Date(a.created_at).toLocaleDateString("en-GB", {
-      day: "numeric", month: "short", year: "numeric",
-    }),
-    author: {
-      name: `${a.author.first_name} ${a.author.last_name}`.trim() || a.author.username,
-      initials: (
-        (a.author.first_name?.[0] ?? "") + (a.author.last_name?.[0] ?? "")
-      ).toUpperCase() || a.author.username.slice(0, 2).toUpperCase(),
-      role: "Writer",
-      verified: false,
-    },
-    engagement: {
-      likes: a.likes,
-      shares: a.shares,
-      comments: a.comments,
-    },
-    isEditorsPick: a.is_editors_pick,
-  };
-}
-
-/** Map a story (written via the shared composer) → the same local Article shape */
-function mapLoveStoryToArticle(s: ApiLoveStory, accent: string): Article {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const raw = s as any;
-  return {
-    id: s.id,
-    authorId: s.author,
-    title: s.title,
-    excerpt: s.excerpt,
-    content: s.content,
-    category: "Article",
-    categoryColor: accent, // CHANGED: same accent as every other card, no pink/purple
-    img: resolveImg(s.image),
-    audio: raw.audio_url ?? undefined,
-    readTime: s.read_time ?? `${Math.ceil(s.content.split(" ").length / 200)} min read`,
-    createdAt: s.created_at,
-    date: new Date(s.created_at).toLocaleDateString("en-GB", {
-      day: "numeric", month: "short", year: "numeric",
-    }),
-    author: {
-      name: s.author_name || "Anonymous",
-      initials: raw.author_info?.avatar || (s.author_name ?? "AN").slice(0, 2).toUpperCase(),
-      role: "Writer",
-      verified: raw.author_info?.verified ?? false,
-    },
-    engagement: {
-      likes: s.likes,
-      shares: s.shares,
-      comments: s.comments,
-    },
-    isEditorsPick: raw.is_editors_pick ?? false,
-  };
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hero helpers — live stats & online presence
@@ -252,7 +177,7 @@ const ArticleCard: React.FC<{
   onOpen: (a: Article) => void;
   audio: ReturnType<typeof useAudio>;
   onLike: (apiId: number) => Promise<void | { likes?: number; liked?: boolean }>;
-  onShare: (apiId: number) => Promise<void>;
+    onShare: (apiId: number) => Promise<void>;
   onCommentSubmit: (apiId: number, text: string) => Promise<Comment>;
   onFetchComments: (apiId: number) => Promise<Comment[]>;
   onEdit: () => void;
@@ -657,6 +582,11 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
   const [editing, setEditing]         = useState(false);
   const [editError, setEditError]     = useState<string | null>(null);
 
+  // ── Share menu state — NEW ─────────────────────────────────────────────────
+  // Which item the currently-open ShareMenu refers to. Set when the Share
+  // button on any card/modal is clicked; cleared when the menu closes.
+  const [shareTarget, setShareTarget] = useState<{ apiId: number; source: FeedSource; title: string } | null>(null);
+
   // ── Fetch + merge both sources ────────────────────────────────────────────
   // `silent` = background poll: no skeleton, no error banner, and a total
   // failure leaves the current feed untouched instead of blanking it.
@@ -963,8 +893,19 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
     return { likes, liked };
   }, []);
 
-  // ── Share (optimistic update, routed by source) ───────────────────────────
-  const handleShare = useCallback(async (apiId: number, source: FeedSource) => {
+  // ── Share — NOW opens the ShareMenu instead of instantly hitting the API.
+  // The counter only bumps once a platform (or copy-link) is actually chosen —
+  // see bumpShareCount, called from ShareMenu's onShared.
+  const handleShareClick = useCallback(async (apiId: number, source: FeedSource): Promise<void> => {
+    const item = feed.find((f) => f.source === source && f.apiId === apiId)
+      ?? (activeItem && activeItem.source === source && activeItem.apiId === apiId ? activeItem : null);
+    setShareTarget({ apiId, source, title: item?.article.title ?? "Check this out" });
+  }, [feed, activeItem]);
+
+  const bumpShareCount = useCallback(async () => {
+    if (!shareTarget) return;
+    const { apiId, source } = shareTarget;
+
     const adjust = (delta: number) => (item: FeedItem) =>
       item.source === source && item.apiId === apiId
         ? { ...item, article: { ...item.article, engagement: { ...item.article.engagement, shares: item.article.engagement.shares + delta } } }
@@ -980,7 +921,11 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
     } catch {
       setFeed((prev) => prev.map(adjust(-1)));
     }
-  }, []);
+  }, [shareTarget]);
+
+  const shareUrl = shareTarget
+    ? `${MEDIA_BASE}/api/article/${shareTarget.source}/${shareTarget.apiId}/`
+    : "";
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -1140,7 +1085,7 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
               onOpen={() => setActiveItem(item)}
               audio={audio}
               onLike={(apiId) => handleLike(apiId, item.source)}
-              onShare={(apiId) => handleShare(apiId, item.source)}
+              onShare={(apiId) => handleShareClick(apiId, item.source)}
               onCommentSubmit={(apiId, text) => handleCommentSubmit(apiId, item.source, text)}
               onFetchComments={(apiId) => handleFetchComments(apiId, item.source)}
               onEdit={() => setEditingItem(item)}
@@ -1185,9 +1130,18 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
           audio={audio}
           source={activeItem.source}
           onLike={() => handleLike(activeItem.apiId, activeItem.source)}
-          onShare={() => handleShare(activeItem.apiId, activeItem.source)}
+          onShare={async () => { await handleShareClick(activeItem.apiId, activeItem.source); }}
         />
       )}
+
+      {/* Share menu — shared by cards and the modal, driven by shareTarget */}
+      <ShareMenu
+        open={!!shareTarget}
+        onClose={() => setShareTarget(null)}
+        shareUrl={shareUrl}
+        title={shareTarget?.title ?? ""}
+        onShared={bumpShareCount}
+      />
 
       {/* EDIT DIALOG — same pattern as the compose page */}
       <Dialog
