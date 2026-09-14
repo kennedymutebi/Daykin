@@ -200,18 +200,23 @@ export const MediumReactionBar: React.FC<ReactionBarProps> = ({
   const handleShare = useCallback(async () => {
     if (shareLoading) return;
 
-    // Dedupe — only bump the share count once per story per client so repeat
-    // clicks can't inflate the counter.
-    if (isStorySharedLocal(storyId, source)) return;
+    // Dedupe only controls whether we bump the visible share COUNT — it must
+    // never block onShare itself, or ShareMenu simply won't open on repeat
+    // clicks (which is exactly what "share does nothing" looks like).
+    const alreadyCountedLocally = isStorySharedLocal(storyId, source);
+    if (!alreadyCountedLocally) {
+      setLocalShares(prev => prev + 1);
+      setStorySharedLocal(storyId, true, source);
+    }
 
-    setLocalShares(prev => prev + 1);
-    setStorySharedLocal(storyId, true, source);
     setShareLoading(true);
     try {
       await onShare?.(storyId);
     } catch {
-      setLocalShares(prev => Math.max(0, prev - 1));
-      setStorySharedLocal(storyId, false, source);
+      if (!alreadyCountedLocally) {
+        setLocalShares(prev => Math.max(0, prev - 1));
+        setStorySharedLocal(storyId, false, source);
+      }
     } finally {
       setShareLoading(false);
     }
