@@ -21,8 +21,10 @@
 //   error text.
 // • CHANGED: excerpt is no longer clamped to 3 lines on the card — full
 //   excerpt text is shown ("Read More" clipping removed).
-// • CHANGED: share mapping functions moved to utils/mapArticle.ts so
-//   ArticlePage (the shared-link deep-link target) can reuse them.
+// • CHANGED: share links now point at API_BASE_URL (the backend's
+//   article_og_view), which serves real OG meta tags — including og:image —
+//   for link-preview crawlers (WhatsApp/Facebook/Telegram/X), then redirects
+//   a real browser on to /article/<source>/<id>.
 // • CHANGED: Share button now opens a real share menu (WhatsApp/X/Facebook/
 //   Telegram/Copy Link) instead of silently bumping the counter with
 //   nowhere for the link to actually go — the count only increments once a
@@ -51,7 +53,8 @@ import type { Comment } from "../components/shared/ReactionMessenger";
 import { useAudio } from "../hooks/useAudio";
 import { useAuth } from "../hooks/useAuth";
 import { useStats } from "../hooks/useStats";
-import { mapApiArticle, mapLoveStoryToArticle, MEDIA_BASE } from "../utils/mapArticle";
+import { mapApiArticle, mapLoveStoryToArticle } from "../utils/mapArticle";
+import { API_BASE_URL } from "../config/api.config";
 
 // ── API services ──────────────────────────────────────────────────────────────
 import {
@@ -74,16 +77,13 @@ import { ApiError } from "../services/api.service";
 
 // ── API types ─────────────────────────────────────────────────────────────────
 import type {
-  Article as ApiArticle,
   Celebrity,
-  LoveStory as ApiLoveStory,
   SiteStats,
   OnlinePresence,
 } from "../types/api";
 
 // ── Local Article type used by existing components ────────────────────────────
 import type { Article } from "../types/article";
-import { API_BASE_URL } from "../config/api.config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -583,10 +583,17 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
   const [editing, setEditing]         = useState(false);
   const [editError, setEditError]     = useState<string | null>(null);
 
-  // ── Share menu state — NEW ─────────────────────────────────────────────────
+  // ── Share menu state ────────────────────────────────────────────────────────
   // Which item the currently-open ShareMenu refers to. Set when the Share
   // button on any card/modal is clicked; cleared when the menu closes.
-  const [shareTarget, setShareTarget] = useState<{ apiId: number; source: FeedSource; title: string } | null>(null);
+  // imageUrl is carried along so ShareMenu can offer a native "share image
+  // file" option (navigator.share with files) in addition to link sharing.
+  const [shareTarget, setShareTarget] = useState<{
+    apiId: number;
+    source: FeedSource;
+    title: string;
+    imageUrl?: string;
+  } | null>(null);
 
   // ── Fetch + merge both sources ────────────────────────────────────────────
   // `silent` = background poll: no skeleton, no error banner, and a total
@@ -894,13 +901,19 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
     return { likes, liked };
   }, []);
 
-  // ── Share — NOW opens the ShareMenu instead of instantly hitting the API.
+  // ── Share — opens the ShareMenu instead of instantly hitting the API.
   // The counter only bumps once a platform (or copy-link) is actually chosen —
-  // see bumpShareCount, called from ShareMenu's onShared.
+  // see bumpShareCount, called from ShareMenu's onShared. The article's image
+  // is carried on shareTarget so ShareMenu can offer native file sharing too.
   const handleShareClick = useCallback(async (apiId: number, source: FeedSource): Promise<void> => {
     const item = feed.find((f) => f.source === source && f.apiId === apiId)
       ?? (activeItem && activeItem.source === source && activeItem.apiId === apiId ? activeItem : null);
-    setShareTarget({ apiId, source, title: item?.article.title ?? "Check this out" });
+    setShareTarget({
+      apiId,
+      source,
+      title: item?.article.title ?? "Check this out",
+      imageUrl: item?.article.img,
+    });
   }, [feed, activeItem]);
 
   const bumpShareCount = useCallback(async () => {
@@ -924,6 +937,9 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
     }
   }, [shareTarget]);
 
+  // Points at the backend's article_og_view (Django route /api/article/<source>/<id>/),
+  // which serves real OG meta tags (title/description/image) for link-preview
+  // crawlers, then redirects a real browser on to /article/<source>/<id>.
   const shareUrl = shareTarget
     ? `${API_BASE_URL}/article/${shareTarget.source}/${shareTarget.apiId}/`
     : "";
@@ -1141,6 +1157,7 @@ const [storiesCount, setStoriesCount] = useState<number | null>(null);
         onClose={() => setShareTarget(null)}
         shareUrl={shareUrl}
         title={shareTarget?.title ?? ""}
+        imageUrl={shareTarget?.imageUrl}
         onShared={bumpShareCount}
       />
 

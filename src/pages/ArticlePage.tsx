@@ -14,12 +14,12 @@ import { useTheme } from "@mui/material/styles";
 import { ArticleModal } from "../components/shared/ArticleModal";
 import { ShareMenu } from "../components/shared/ShareMenu";
 import { useAudio } from "../hooks/useAudio";
-import { mapApiArticle, mapLoveStoryToArticle, MEDIA_BASE } from "../utils/mapArticle";
+import { mapApiArticle, mapLoveStoryToArticle } from "../utils/mapArticle";
+import { API_BASE_URL } from "../config/api.config";
 import { getArticle, likeArticle, shareArticle } from "../services";
 import { getLoveStory, likeLoveStory, shareLoveStory } from "../services/loveStories.service";
 import { ApiError } from "../services/api.service";
 import type { Article } from "../types/article";
-import { API_BASE_URL } from "../config/api.config";
 
 type Source = "article" | "love_story";
 
@@ -108,8 +108,11 @@ export default function ArticlePage() {
     }
   }, [validSource, apiId]);
 
+  // Points at the backend's article_og_view (Django route /api/article/<source>/<id>/),
+  // which serves real OG meta tags (title/description/image) for link-preview
+  // crawlers, then redirects a real browser on to /article/<source>/<id>.
   const shareUrl = validSource && !Number.isNaN(apiId)
-     ? `${API_BASE_URL}/article/${validSource}/${apiId}/`
+    ? `${API_BASE_URL}/article/${validSource}/${apiId}/`
     : "";
 
   if (loading) {

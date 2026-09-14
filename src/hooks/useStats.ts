@@ -1,4 +1,3 @@
-
 // ─────────────────────────────────────────────────────────────────────────────
 // useStats — live hero numbers + online presence list (READ side)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +60,11 @@ export function useStats(): {
     unmountedRef.current = false;
 
     let timer: ReturnType<typeof setInterval> | undefined;
-    let initialRefresh: ReturnType<typeof setTimeout> | undefined;
+    const initialRefresh: ReturnType<typeof setTimeout> = setTimeout(() => {
+      if (!unmountedRef.current) {
+        refresh();
+      }
+    }, 0);
 
     const start = () => {
       if (!timer) {
@@ -89,14 +92,6 @@ export function useStats(): {
       }
     };
 
-    // Delay the initial refresh so the effect does not synchronously
-    // trigger a state update during its execution.
-    initialRefresh = setTimeout(() => {
-      if (!unmountedRef.current) {
-        refresh();
-      }
-    }, 0);
-
     start();
 
     document.addEventListener("visibilitychange", onVisibility);
@@ -104,9 +99,7 @@ export function useStats(): {
     return () => {
       unmountedRef.current = true;
 
-      if (initialRefresh) {
-        clearTimeout(initialRefresh);
-      }
+      clearTimeout(initialRefresh);
 
       stop();
 
@@ -119,4 +112,3 @@ export function useStats(): {
 
   return { stats, online };
 }
-

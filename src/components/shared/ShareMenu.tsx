@@ -1,6 +1,10 @@
 // src/components/shared/ShareMenu.tsx
-// The actual share menu — WhatsApp / X / Facebook / Telegram / Copy Link.
-// The counter only bumps once the person picks one of these (see onShared),
+// The actual share menu — WhatsApp / X / Facebook / Telegram / Copy Link,
+// plus a native "Share Image" option on browsers that support the Web Share
+// API with files (mostly mobile Chrome/Safari).
+//
+// The counter only bumps once the person actually uses the link (platform
+// opened, link copied, or the native share sheet completes) — see onShared —
 // not the instant the Share button is tapped, so the number reflects real
 // shares instead of just clicks.
 
@@ -15,17 +19,20 @@ import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import TelegramIcon from "@mui/icons-material/Telegram";
 import FacebookIcon from "@mui/icons-material/Facebook";
 import TwitterIcon from "@mui/icons-material/Twitter";
+import ImageIcon from "@mui/icons-material/Image";
 
 interface ShareMenuProps {
   open: boolean;
   onClose: () => void;
   shareUrl: string;
   title: string;
-  /** Called once, only when the link is actually used (platform opened or copied). */
+  /** Article image, if any — enables the native "Share Image" option below. */
+  imageUrl?: string;
+  /** Called once, only when the link/image is actually used (platform opened, copied, or native share completed). */
   onShared: () => void;
 }
 
-export const ShareMenu: React.FC<ShareMenuProps> = ({ open, onClose, shareUrl, title, onShared }) => {
+export const ShareMenu: React.FC<ShareMenuProps> = ({ open, onClose, shareUrl, title, imageUrl, onShared }) => {
   const [copied, setCopied] = useState(false);
 
   const openPlatform = (url: string) => {
@@ -71,6 +78,34 @@ export const ShareMenu: React.FC<ShareMenuProps> = ({ open, onClose, shareUrl, t
     }
   };
 
+  // Only offer this when there's actually an image AND the browser supports
+  // sharing files via the Web Share API (canShare with a `files` payload).
+  // Desktop Chrome/Firefox generally don't — the option simply won't render there.
+  const supportsFileShare =
+    !!imageUrl &&
+    typeof navigator !== "undefined" &&
+    typeof navigator.share === "function" &&
+    typeof navigator.canShare === "function";
+
+  const handleShareImage = async () => {
+    if (!imageUrl || typeof navigator.share !== "function") return;
+    try {
+      const res = await fetch(imageUrl);
+      const blob = await res.blob();
+      const file = new File([blob], "article.jpg", { type: blob.type || "image/jpeg" });
+
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ title, text: title, url: shareUrl, files: [file] });
+        onShared();
+        onClose();
+      }
+    } catch {
+      // User cancelled the native share sheet, or the fetch/share call
+      // failed — no fallback needed, the dialog just stays open with the
+      // other options still available.
+    }
+  };
+
   return (
     <>
       <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
@@ -82,6 +117,12 @@ export const ShareMenu: React.FC<ShareMenuProps> = ({ open, onClose, shareUrl, t
         </DialogTitle>
         <DialogContent sx={{ pt: 0 }}>
           <List>
+            {supportsFileShare && (
+              <ListItemButton onClick={handleShareImage}>
+                <ListItemIcon><ImageIcon /></ListItemIcon>
+                <ListItemText primary="Share Image" />
+              </ListItemButton>
+            )}
             {options.map((opt) => (
               <ListItemButton key={opt.label} onClick={opt.action}>
                 <ListItemIcon>{opt.icon}</ListItemIcon>
